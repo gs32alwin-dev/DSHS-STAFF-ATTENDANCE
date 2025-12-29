@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CameraScanner } from './components/CameraScanner';
 import { AttendanceCard } from './components/AttendanceCard';
@@ -19,11 +20,19 @@ const App: React.FC = () => {
   const [flicker, setFlicker] = useState<'SIGN_IN' | 'SIGN_OUT' | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  const SIGN_IN_MSG = "Welcome back! Glad you’re here, your presence makes a difference.";
+  const SIGN_OUT_MSG = "Thank you for giving your best today. Safe journey home.";
+
   const initAudio = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-    } else if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+    } catch (e) {
+      console.warn("Audio Context init failed", e);
     }
   }, []);
 
@@ -39,7 +48,7 @@ const App: React.FC = () => {
   }, []);
 
   const fetchFromCloud = useCallback(async () => {
-    if (!webhookUrl || !webhookUrl.startsWith('http') || isSyncing) return;
+    if (!webhookUrl || !webhookUrl.startsWith('https://script.google.com') || isSyncing) return;
     setIsSyncing(true);
     try {
       const cloudData = await geminiService.fetchCloudData(webhookUrl);
@@ -65,7 +74,7 @@ const App: React.FC = () => {
         setLastSync(new Date());
       }
     } catch (err) {
-      // Fail silently to keep UX smooth
+      // Background fetch error silenced
     } finally {
       setIsSyncing(false);
     }
@@ -74,7 +83,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (webhookUrl) {
       fetchFromCloud();
-      const interval = setInterval(fetchFromCloud, 60000);
+      const interval = setInterval(fetchFromCloud, 300000);
       return () => clearInterval(interval);
     }
   }, [webhookUrl, fetchFromCloud]);
@@ -97,9 +106,7 @@ const App: React.FC = () => {
 
   const playGreeting = async (type: 'SIGN_IN' | 'SIGN_OUT') => {
     initAudio();
-    const text = type === 'SIGN_IN' 
-      ? `Welcome back! Glad you’re here, your presence makes a difference.` 
-      : `Thank you for giving your best today. Safe journey home.`;
+    const text = type === 'SIGN_IN' ? SIGN_IN_MSG : SIGN_OUT_MSG;
 
     const audioData = await geminiService.generateSpeech(text);
     if (audioData && audioContextRef.current) {
@@ -111,20 +118,20 @@ const App: React.FC = () => {
         source.connect(ctx.destination);
         source.start();
       } catch (err) {
-        console.warn("Audio playback skipped:", err);
+        console.warn("Audio blocked.");
       }
     }
   };
 
   const handleRegister = async (newStaff: StaffMember) => {
     if (staffList.some(s => s.id === newStaff.id)) {
-      setToast({ message: `Staff ID ${newStaff.id} already exists!`, type: 'error' });
+      setToast({ message: `ID ${newStaff.id} is already in use.`, type: 'error' });
       return;
     }
     setStaffList(prev => [...prev, newStaff]);
     if (webhookUrl) {
       geminiService.syncStaffToCloud(newStaff, webhookUrl);
-      setToast({ message: `${newStaff.name} registered and cloud sync initiated.`, type: 'success' });
+      setToast({ message: `${newStaff.name} saved. Cloud syncing...`, type: 'success' });
     } else {
       setToast({ message: `${newStaff.name} registered locally.`, type: 'success' });
     }
@@ -133,7 +140,7 @@ const App: React.FC = () => {
 
   const handleRecognition = useCallback(async (result: RecognitionResult) => {
     if (staffList.length === 0) {
-      setToast({ message: "No staff registered. Please go to the Staff tab first.", type: 'error' });
+      setToast({ message: "Register staff first to enable recognition.", type: 'error' });
       return;
     }
 
@@ -152,27 +159,23 @@ const App: React.FC = () => {
           method: 'FACE_RECOGNITION'
         };
 
-        const greetingMsg = clockMode === 'SIGN_IN' 
-          ? "Welcome back! Glad you’re here, your presence makes a difference."
-          : "Thank you for giving your best today. Safe journey home.";
-
-        // Instant local update
         setHistory(prev => [newRecord, ...prev]);
         triggerFlicker(clockMode);
         playGreeting(clockMode);
-        setToast({ message: `${result.staffName}: ${greetingMsg}`, type: 'success' });
+        
+        const displayMsg = clockMode === 'SIGN_IN' ? SIGN_IN_MSG : SIGN_OUT_MSG;
+        setToast({ message: `${result.staffName}: ${displayMsg}`, type: 'success' });
 
-        // Background cloud sync
         if (webhookUrl) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl)
              .then(() => fetchFromCloud())
-             .catch(err => console.warn("Background cloud sync failed.", err));
+             .catch(() => {});
         }
       } else {
-        setToast({ message: result.message || "Face not recognized. Ensure good lighting.", type: 'error' });
+        setToast({ message: result.message || "Could not identify person.", type: 'error' });
       }
     } catch (err: any) {
-      setToast({ message: err.message || "Recognition service error.", type: 'error' });
+      setToast({ message: err.message || "Recognition Error.", type: 'error' });
     } finally {
       setIsProcessing(false);
     }
@@ -182,7 +185,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
       {flicker && (
         <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-300 ${
-          flicker === 'SIGN_IN' ? 'bg-emerald-500/30' : 'bg-indigo-900/40'
+          flicker === 'SIGN_IN' ? 'bg-emerald-500/20' : 'bg-indigo-900/30'
         }`} />
       )}
 
@@ -192,11 +195,11 @@ const App: React.FC = () => {
             <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 leading-none">FaceTrack Pro</h1>
+            <h1 className="text-xl font-black text-slate-900 leading-none tracking-tight">FaceTrack Pro</h1>
             <div className="flex items-center gap-2 mt-1.5">
               <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {webhookUrl ? 'Cloud Connection Active' : 'Offline Mode'}
+                {webhookUrl ? 'Netlify Live Sync' : 'Standalone Mode'}
               </p>
             </div>
           </div>
@@ -204,9 +207,9 @@ const App: React.FC = () => {
 
         <nav className="flex bg-slate-100 p-1.5 rounded-2xl">
           {[
-            { id: 'attendance', label: 'Scanner' },
+            { id: 'attendance', label: 'Scan' },
             { id: 'registration', label: 'Staff' },
-            { id: 'settings', label: 'Cloud' }
+            { id: 'settings', label: 'Setup' }
           ].map(tab => (
             <button 
               key={tab.id}
@@ -241,13 +244,8 @@ const App: React.FC = () => {
 
                 <div className="mb-8 h-16 flex flex-col justify-center">
                   <h2 className={`text-xl font-black ${clockMode === 'SIGN_IN' ? 'text-emerald-600' : 'text-indigo-900'}`}>
-                    {clockMode === 'SIGN_IN' ? 'Welcome Back Portal' : 'Safe Journey Portal'}
+                    {clockMode === 'SIGN_IN' ? 'Morning Sign-In' : 'Evening Sign-Out'}
                   </h2>
-                  <p className="text-sm text-slate-500 italic mt-1 px-8">
-                    {clockMode === 'SIGN_IN' 
-                      ? "Glad you’re here, your presence makes a difference."
-                      : "Thank you for giving your best today."}
-                  </p>
                 </div>
                 
                 <CameraScanner onResult={handleRecognition} isProcessing={isProcessing} staffList={staffList} />
@@ -255,13 +253,13 @@ const App: React.FC = () => {
                 <div className="mt-10 flex items-center justify-center gap-8 border-t border-slate-50 pt-8">
                   <div className="text-left">
                     <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">AI Core</p>
-                    <p className="text-xs font-bold text-slate-600">Gemini 3 Pro</p>
+                    <p className="text-xs font-bold text-slate-600">Gemini 3 Flash</p>
                   </div>
                   <div className="w-px h-8 bg-slate-100"></div>
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Cloud Sync</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Sync</p>
                     <p className="text-xs font-bold text-slate-600">
-                      {lastSync ? lastSync.toLocaleTimeString() : 'No Cloud Data'}
+                      {lastSync ? lastSync.toLocaleTimeString() : 'Local Only'}
                     </p>
                   </div>
                 </div>
@@ -269,16 +267,14 @@ const App: React.FC = () => {
             </div>
             
             <div className="lg:col-span-5 space-y-6">
-              <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
-                <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Recent Activity</h3>
-                </div>
+              <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl h-full">
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Activity Logs</h3>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {history.length > 0 ? (
                     history.map(record => <AttendanceCard key={record.id} record={record} />)
                   ) : (
                     <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-300">
-                      <p className="font-bold text-sm">No activity recorded</p>
+                      <p className="font-bold text-sm">No activity logged yet.</p>
                     </div>
                   )}
                 </div>
@@ -298,14 +294,14 @@ const App: React.FC = () => {
                 {staffList.length > 0 ? staffList.map(staff => (
                   <div key={staff.id} className="bg-slate-50 p-5 rounded-3xl border border-transparent hover:border-indigo-200 transition-all flex items-center gap-4">
                     <img src={staff.avatarUrl} className="w-14 h-14 rounded-2xl object-cover shadow-sm" alt="" />
-                    <div>
-                      <h4 className="font-black text-slate-900 leading-tight">{staff.name}</h4>
+                    <div className="min-w-0">
+                      <h4 className="font-black text-slate-900 leading-tight truncate">{staff.name}</h4>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{staff.role}</p>
                     </div>
                   </div>
                 )) : (
                    <div className="col-span-2 text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
-                     <p className="font-bold">Register staff to start</p>
+                     <p className="font-bold">Database Empty</p>
                    </div>
                 )}
               </div>
@@ -321,9 +317,9 @@ const App: React.FC = () => {
       </main>
 
       {toast && (
-        <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[450px] p-6 rounded-3xl shadow-2xl flex items-center gap-4 z-[110] animate-bounce-in border border-white/20 backdrop-blur-xl
+        <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[450px] p-6 rounded-3xl shadow-2xl flex items-center gap-4 z-[110] animate-bounce-in border border-white/10 backdrop-blur-xl
           ${toast.type === 'success' ? 'bg-slate-900 text-white' : toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}>
-          <div className="shrink-0 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+          <div className="shrink-0 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold">
              {toast.type === 'success' ? '✓' : '!'}
           </div>
           <p className="text-sm font-bold leading-snug">{toast.message}</p>
@@ -337,8 +333,6 @@ const App: React.FC = () => {
           100% { transform: translateY(0); opacity: 1; }
         }
         .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
       `}</style>
     </div>
   );
