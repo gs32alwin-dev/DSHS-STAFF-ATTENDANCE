@@ -19,7 +19,6 @@ const App: React.FC = () => {
   const [flicker, setFlicker] = useState<'SIGN_IN' | 'SIGN_OUT' | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Initialize AudioContext on first interaction
   const initAudio = useCallback(() => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -40,7 +39,7 @@ const App: React.FC = () => {
   }, []);
 
   const fetchFromCloud = useCallback(async () => {
-    if (!webhookUrl || isSyncing) return;
+    if (!webhookUrl || !webhookUrl.startsWith('http') || isSyncing) return;
     setIsSyncing(true);
     try {
       const cloudData = await geminiService.fetchCloudData(webhookUrl);
@@ -49,20 +48,24 @@ const App: React.FC = () => {
           setHistory(prev => {
             const existingIds = new Set(prev.map(r => r.id));
             const newRecords = cloudData.history.filter((r: any) => !existingIds.has(r.id));
-            return [...newRecords, ...prev].sort((a, b) => new Date(b.date + ' ' + b.timestamp).getTime() - new Date(a.date + ' ' + a.timestamp).getTime());
+            if (newRecords.length === 0) return prev;
+            return [...newRecords, ...prev].sort((a, b) => 
+              new Date(b.date + ' ' + b.timestamp).getTime() - new Date(a.date + ' ' + a.timestamp).getTime()
+            );
           });
         }
         if (cloudData.staff) {
           setStaffList(prev => {
             const existingIds = new Set(prev.map(s => s.id));
             const newStaff = cloudData.staff.filter((s: any) => !existingIds.has(s.id));
+            if (newStaff.length === 0) return prev;
             return [...prev, ...newStaff];
           });
         }
         setLastSync(new Date());
       }
     } catch (err) {
-      console.warn("Cloud sync failed.");
+      // Fail silently to keep UX smooth
     } finally {
       setIsSyncing(false);
     }
@@ -82,7 +85,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(null), 10000); // Longer duration for the warm messages
+      const timer = setTimeout(() => setToast(null), 8000);
       return () => clearTimeout(timer);
     }
   }, [toast]);
@@ -108,7 +111,7 @@ const App: React.FC = () => {
         source.connect(ctx.destination);
         source.start();
       } catch (err) {
-        console.error("Audio playback error:", err);
+        console.warn("Audio playback skipped:", err);
       }
     }
   };
@@ -121,7 +124,7 @@ const App: React.FC = () => {
     setStaffList(prev => [...prev, newStaff]);
     if (webhookUrl) {
       geminiService.syncStaffToCloud(newStaff, webhookUrl);
-      setToast({ message: `${newStaff.name} registered successfully.`, type: 'success' });
+      setToast({ message: `${newStaff.name} registered and cloud sync initiated.`, type: 'success' });
     } else {
       setToast({ message: `${newStaff.name} registered locally.`, type: 'success' });
     }
@@ -130,7 +133,7 @@ const App: React.FC = () => {
 
   const handleRecognition = useCallback(async (result: RecognitionResult) => {
     if (staffList.length === 0) {
-      setToast({ message: "No staff registered. Please add staff members first.", type: 'error' });
+      setToast({ message: "No staff registered. Please go to the Staff tab first.", type: 'error' });
       return;
     }
 
@@ -153,23 +156,23 @@ const App: React.FC = () => {
           ? "Welcome back! Glad you’re here, your presence makes a difference."
           : "Thank you for giving your best today. Safe journey home.";
 
-        // --- STEP 1: INSTANT FEEDBACK ---
+        // Instant local update
         setHistory(prev => [newRecord, ...prev]);
         triggerFlicker(clockMode);
         playGreeting(clockMode);
         setToast({ message: `${result.staffName}: ${greetingMsg}`, type: 'success' });
 
-        // --- STEP 2: BACKGROUND SYNC ---
+        // Background cloud sync
         if (webhookUrl) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl)
              .then(() => fetchFromCloud())
-             .catch(err => console.error("Cloud sync failed in background", err));
+             .catch(err => console.warn("Background cloud sync failed.", err));
         }
       } else {
-        setToast({ message: result.message || "Face not recognized. Please try again.", type: 'error' });
+        setToast({ message: result.message || "Face not recognized. Ensure good lighting.", type: 'error' });
       }
     } catch (err: any) {
-      setToast({ message: err.message || "AI Identification failed.", type: 'error' });
+      setToast({ message: err.message || "Recognition service error.", type: 'error' });
     } finally {
       setIsProcessing(false);
     }
@@ -177,7 +180,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
-      {/* Visual Feedback Overlays */}
       {flicker && (
         <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-300 ${
           flicker === 'SIGN_IN' ? 'bg-emerald-500/30' : 'bg-indigo-900/40'
@@ -194,7 +196,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1.5">
               <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {webhookUrl ? 'Cloud Connection Active' : 'Offline Storage Mode'}
+                {webhookUrl ? 'Cloud Connection Active' : 'Offline Mode'}
               </p>
             </div>
           </div>
@@ -252,14 +254,14 @@ const App: React.FC = () => {
                 
                 <div className="mt-10 flex items-center justify-center gap-8 border-t border-slate-50 pt-8">
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Recognition Engine</p>
-                    <p className="text-xs font-bold text-slate-600">Gemini 3 Pro Vision</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">AI Core</p>
+                    <p className="text-xs font-bold text-slate-600">Gemini 3 Pro</p>
                   </div>
                   <div className="w-px h-8 bg-slate-100"></div>
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Sync</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Cloud Sync</p>
                     <p className="text-xs font-bold text-slate-600">
-                      {lastSync ? lastSync.toLocaleTimeString() : 'Awaiting Connection'}
+                      {lastSync ? lastSync.toLocaleTimeString() : 'No Cloud Data'}
                     </p>
                   </div>
                 </div>
@@ -276,8 +278,7 @@ const App: React.FC = () => {
                     history.map(record => <AttendanceCard key={record.id} record={record} />)
                   ) : (
                     <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-300">
-                      <p className="font-bold text-sm">No recent attendance found</p>
-                      <p className="text-[10px] uppercase mt-1 tracking-widest">Awaiting system scans</p>
+                      <p className="font-bold text-sm">No activity recorded</p>
                     </div>
                   )}
                 </div>
@@ -304,7 +305,7 @@ const App: React.FC = () => {
                   </div>
                 )) : (
                    <div className="col-span-2 text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
-                     <p className="font-bold">No Staff Members Registered</p>
+                     <p className="font-bold">Register staff to start</p>
                    </div>
                 )}
               </div>
@@ -323,7 +324,7 @@ const App: React.FC = () => {
         <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[450px] p-6 rounded-3xl shadow-2xl flex items-center gap-4 z-[110] animate-bounce-in border border-white/20 backdrop-blur-xl
           ${toast.type === 'success' ? 'bg-slate-900 text-white' : toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}>
           <div className="shrink-0 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-             {toast.type === 'success' ? '✨' : '⚠️'}
+             {toast.type === 'success' ? '✓' : '!'}
           </div>
           <p className="text-sm font-bold leading-snug">{toast.message}</p>
         </div>

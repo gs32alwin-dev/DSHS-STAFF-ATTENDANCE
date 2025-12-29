@@ -3,39 +3,44 @@ import { RecognitionResult, StaffMember, AttendanceRecord } from "../types";
 
 export class GeminiService {
   async identifyStaff(probeImageBase64: string, staffList: StaffMember[]): Promise<RecognitionResult> {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
+    if (!process.env.API_KEY) {
       throw new Error("Missing Gemini API Key.");
     }
 
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const parts: any[] = [];
 
+      // Filter to only include staff with valid photo data
       const validStaff = staffList.filter(s => s.avatarUrl && s.avatarUrl.includes('base64,'));
 
       if (validStaff.length === 0) {
         return {
           identified: false,
           confidence: 0,
-          message: "No registered staff found with photos."
+          message: "No registered staff found with reference photos."
         };
       }
 
-      validStaff.forEach((staff) => {
+      // We limit to the most recent/relevant staff if the list is huge to prevent XHR/Payload errors
+      const limitedStaff = validStaff.slice(0, 10);
+
+      parts.push({ text: "REFERENCE DATABASE: I am providing images of registered staff members followed by their details." });
+
+      limitedStaff.forEach((staff) => {
         const mimeType = staff.avatarUrl.split(';')[0].split(':')[1] || 'image/jpeg';
         const base64Data = staff.avatarUrl.split(',')[1];
         
         parts.push({
           inlineData: { mimeType, data: base64Data }
         });
-        parts.push({ text: `STAFF - ID: ${staff.id}, Name: ${staff.name}, Role: ${staff.role}` });
+        parts.push({ text: `STAFF PROFILE -> ID: ${staff.id}, Name: ${staff.name}` });
       });
 
       parts.push({
-        text: `IDENTIFICATION TASK: Compare the last image provided (PROBE) with the REFERENCE images above.
-               If you find a clear match (confidence > 0.85), identify the person.
-               Return JSON: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
+        text: `PROBE IMAGE: Identify if the person in the following image matches any of the profiles above. 
+               Only identify if confidence is above 0.85. 
+               Return JSON format: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
       });
 
       parts.push({
@@ -62,23 +67,23 @@ export class GeminiService {
       });
 
       const text = response.text;
-      if (!text) throw new Error("AI response was empty.");
+      if (!text) throw new Error("AI returned an empty response.");
       return JSON.parse(text) as RecognitionResult;
     } catch (error: any) {
-      console.error("Gemini Error:", error);
-      if (error.message?.includes("500") || error.message?.includes("Internal error")) {
-        throw new Error("AI service is currently busy. Please try again in a few seconds.");
+      console.error("Gemini Recognition Error:", error);
+      // Handle specific Proxy/XHR errors gracefully
+      if (error.message?.includes("500") || error.message?.includes("Rpc failed")) {
+        throw new Error("The AI service is currently overwhelmed or the image is too large. Please try again.");
       }
       throw error;
     }
   }
 
   async generateSpeech(text: string): Promise<Uint8Array | null> {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) return null;
+    if (!process.env.API_KEY) return null;
 
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
@@ -96,7 +101,7 @@ export class GeminiService {
       if (base64Audio) return this.decodeBase64(base64Audio);
       return null;
     } catch (error) {
-      console.error("TTS Error:", error);
+      console.error("TTS Generation Error:", error);
       return null;
     }
   }
@@ -124,19 +129,21 @@ export class GeminiService {
   }
 
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
-    if (!url) return { success: false, message: "URL required" };
+    if (!url || !url.startsWith('https://script.google.com')) {
+      return { success: false, message: "Invalid URL. Must be a Google Apps Script 'exec' URL." };
+    }
     try {
       const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=test&t=${Date.now()}`, { 
-        method: 'GET', mode: 'cors', cache: 'no-store', redirect: 'follow'
+        method: 'GET', mode: 'cors', cache: 'no-store'
       });
-      return response.ok ? { success: true, message: "Connected!" } : { success: false, message: `Status: ${response.status}` };
+      return response.ok ? { success: true, message: "Connected successfully!" } : { success: false, message: `Status: ${response.status}` };
     } catch (err) {
-      return { success: false, message: "Connection failed. Check your Apps Script deployment." };
+      return { success: false, message: "Connection failed. Ensure CORS is enabled and access is set to 'Anyone'." };
     }
   }
 
   async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
-    if (!webhookUrl) return { success: false };
+    if (!webhookUrl || !webhookUrl.startsWith('http')) return { success: false };
     try {
       await fetch(webhookUrl, {
         method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
@@ -144,13 +151,13 @@ export class GeminiService {
       });
       return { success: true };
     } catch (error) {
-      console.error("Sync error:", error);
+      console.error("Sheets sync error:", error);
       throw error;
     }
   }
 
   async syncStaffToCloud(staff: StaffMember, webhookUrl: string | null) {
-    if (!webhookUrl) return { success: false };
+    if (!webhookUrl || !webhookUrl.startsWith('http')) return { success: false };
     try {
       await fetch(webhookUrl, {
         method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
@@ -158,23 +165,23 @@ export class GeminiService {
       });
       return { success: true };
     } catch (error) {
-      console.error("Staff sync error:", error);
+      console.error("Staff cloud sync error:", error);
       throw error;
     }
   }
 
   async fetchCloudData(webhookUrl: string) {
-    if (!webhookUrl || !webhookUrl.startsWith('http')) return null;
+    if (!webhookUrl || !webhookUrl.startsWith('https://script.google.com')) return null;
     try {
       const response = await fetch(`${webhookUrl}${webhookUrl.includes('?') ? '&' : '?'}action=get_data&t=${Date.now()}`, {
-        method: 'GET', mode: 'cors', cache: 'no-store', redirect: 'follow'
+        method: 'GET', mode: 'cors', cache: 'no-store'
       });
       if (response.ok) {
         return await response.json();
       }
       return null;
     } catch (error) {
-      console.error("Fetch cloud data error:", error);
+      // Fail silently for background fetches to prevent UI spam
       return null;
     }
   }
