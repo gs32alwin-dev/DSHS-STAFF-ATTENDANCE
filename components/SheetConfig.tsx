@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { geminiService } from '../services/geminiService';
 
@@ -125,7 +126,7 @@ function doPost(e) {
                <h4 className="font-black text-amber-900 text-sm">Deployment Check: Avoid "Failed to Fetch"</h4>
              </div>
              <p className="text-[11px] text-amber-800 leading-relaxed font-medium">
-               1. In Apps Script, click <span className="font-bold underline">Deploy &gt; New Deployment</span>.<br/>
+               1. In Apps Script, click <span className="font-bold underline">{'Deploy > New Deployment'}</span>.<br/>
                2. Select <span className="font-bold underline">Web App</span>.<br/>
                3. <b>Execute as:</b> Me.<br/>
                4. <b>Who has access:</b> <span className="font-bold italic underline">Anyone</span> (this is crucial for Netlify).<br/>

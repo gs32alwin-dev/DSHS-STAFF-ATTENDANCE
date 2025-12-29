@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CameraScanner } from './components/CameraScanner';
 import { AttendanceCard } from './components/AttendanceCard';
@@ -160,8 +161,8 @@ const App: React.FC = () => {
 
         playGreeting(clockMode);
         
-        // Clear overlay after 6 seconds
-        setTimeout(() => setSuccessOverlay(null), 6000);
+        // Clear overlay after 8 seconds for better readability
+        setTimeout(() => setSuccessOverlay(null), 8000);
 
         if (webhookUrl) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl)
@@ -182,7 +183,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
       {/* SUCCESS MESSAGE DISPLAY ON SCREEN */}
       {successOverlay && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/85 backdrop-blur-2xl animate-in fade-in duration-500">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-3xl animate-in fade-in duration-500">
            <div className="bg-white rounded-[50px] p-8 md:p-14 max-w-xl w-full shadow-2xl text-center border border-white/20 scale-up-center relative overflow-hidden">
               {/* Background accent */}
               <div className={`absolute top-0 left-0 right-0 h-4 ${
