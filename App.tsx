@@ -17,7 +17,8 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [flicker, setFlicker] = useState<'SIGN_IN' | 'SIGN_OUT' | null>(null);
+  const [successOverlay, setSuccessOverlay] = useState<{ name: string; avatar: string; message: string; type: 'SIGN_IN' | 'SIGN_OUT' } | null>(null);
+  
   const audioContextRef = useRef<AudioContext | null>(null);
 
   const SIGN_IN_MSG = "Welcome back! Glad you’re here, your presence makes a difference.";
@@ -92,22 +93,9 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('facetrack-v1-history', JSON.stringify(history)), [history]);
   useEffect(() => localStorage.setItem('facetrack-v1-webhook', webhookUrl), [webhookUrl]);
 
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 8000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
-
-  const triggerFlicker = (type: 'SIGN_IN' | 'SIGN_OUT') => {
-    setFlicker(type);
-    setTimeout(() => setFlicker(null), 400);
-  };
-
   const playGreeting = async (type: 'SIGN_IN' | 'SIGN_OUT') => {
     initAudio();
     const text = type === 'SIGN_IN' ? SIGN_IN_MSG : SIGN_OUT_MSG;
-
     const audioData = await geminiService.generateSpeech(text);
     if (audioData && audioContextRef.current) {
       try {
@@ -159,12 +147,22 @@ const App: React.FC = () => {
           method: 'FACE_RECOGNITION'
         };
 
+        const currentStaff = staffList.find(s => s.id === result.staffId);
+
         setHistory(prev => [newRecord, ...prev]);
-        triggerFlicker(clockMode);
+        
+        // Show prominent on-screen overlay
+        setSuccessOverlay({
+          name: result.staffName,
+          avatar: currentStaff?.avatarUrl || '',
+          message: clockMode === 'SIGN_IN' ? SIGN_IN_MSG : SIGN_OUT_MSG,
+          type: clockMode
+        });
+
         playGreeting(clockMode);
         
-        const displayMsg = clockMode === 'SIGN_IN' ? SIGN_IN_MSG : SIGN_OUT_MSG;
-        setToast({ message: `${result.staffName}: ${displayMsg}`, type: 'success' });
+        // Clear overlay after 6 seconds
+        setTimeout(() => setSuccessOverlay(null), 6000);
 
         if (webhookUrl) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl)
@@ -183,10 +181,49 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
-      {flicker && (
-        <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-300 ${
-          flicker === 'SIGN_IN' ? 'bg-emerald-500/20' : 'bg-indigo-900/30'
-        }`} />
+      {/* Success Modal Overlay */}
+      {successOverlay && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white rounded-[40px] p-8 md:p-12 max-w-lg w-full shadow-2xl text-center border border-white/20 scale-up-center">
+              <div className="relative inline-block mb-8">
+                <img 
+                  src={successOverlay.avatar} 
+                  className="w-32 h-32 md:w-40 md:h-40 rounded-[35px] mx-auto object-cover shadow-2xl border-4 border-white" 
+                  alt="" 
+                />
+                <div className={`absolute -bottom-2 -right-2 w-10 h-10 rounded-full flex items-center justify-center text-white shadow-lg ${
+                  successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'
+                }`}>
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              </div>
+              
+              <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">
+                {successOverlay.name}
+              </h2>
+              
+              <div className={`inline-block px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[3px] mb-8 ${
+                successOverlay.type === 'SIGN_IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-900'
+              }`}>
+                {successOverlay.type.replace('_', ' ')} SUCCESSFUL
+              </div>
+              
+              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                <p className="text-xl font-bold text-slate-700 leading-relaxed italic">
+                  "{successOverlay.message}"
+                </p>
+              </div>
+              
+              <button 
+                onClick={() => setSuccessOverlay(null)}
+                className="mt-8 text-slate-400 text-xs font-black uppercase tracking-widest hover:text-slate-600 transition-colors"
+              >
+                Tap to dismiss
+              </button>
+           </div>
+        </div>
       )}
 
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
@@ -327,6 +364,12 @@ const App: React.FC = () => {
       )}
 
       <style>{`
+        @keyframes scale-up-center {
+          0% { transform: scale(0.5); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .scale-up-center { animation: scale-up-center 0.5s cubic-bezier(0.390, 0.575, 0.565, 1.000) both; }
+        
         @keyframes bounce-in {
           0% { transform: translateY(100px); opacity: 0; }
           70% { transform: translateY(-10px); opacity: 1; }
