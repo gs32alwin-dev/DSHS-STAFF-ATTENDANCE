@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { geminiService } from '../services/geminiService';
 
@@ -90,6 +89,18 @@ function doPost(e) {
         <p className="text-sm text-slate-500 mb-8">Connect your app to Google Sheets to track attendance <b>from anywhere</b>.</p>
         
         <div className="space-y-6">
+          <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-3xl">
+             <div className="flex items-center gap-3 mb-3">
+               <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                 <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+               </div>
+               <h4 className="font-black text-indigo-900 text-sm">Essential: Environment Variable</h4>
+             </div>
+             <p className="text-[11px] text-indigo-800 leading-relaxed font-medium">
+               For face recognition to work, you MUST set an environment variable named <code className="bg-white/50 px-1 rounded font-bold">API_KEY</code> in your Netlify or hosting dashboard. This is independent of the Google Sheet URL below.
+             </p>
+          </div>
+
           <div>
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Apps Script Web App URL</label>
             <div className="flex gap-3">
@@ -129,7 +140,7 @@ function doPost(e) {
                1. In Apps Script, click <span className="font-bold underline">Deploy {' > '} New Deployment</span>.<br/>
                2. Select <span className="font-bold underline">Web App</span>.<br/>
                3. <b>Execute as:</b> Me.<br/>
-               4. <b>Who has access:</b> <span className="font-bold italic underline">Anyone</span> (this is crucial for Netlify).<br/>
+               4. <b>Who has access:</b> <span className="font-bold italic underline">Anyone</span>.<br/>
                5. After deploying, copy the URL ending in <b>/exec</b> and paste it above.
              </p>
           </div>

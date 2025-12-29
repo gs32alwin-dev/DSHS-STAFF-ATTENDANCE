@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CameraScanner } from './components/CameraScanner';
 import { AttendanceCard } from './components/AttendanceCard';
@@ -18,9 +17,11 @@ const App: React.FC = () => {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [successOverlay, setSuccessOverlay] = useState<{ name: string; avatar: string; message: string; type: 'SIGN_IN' | 'SIGN_OUT' } | null>(null);
+  const [errorOverlay, setErrorOverlay] = useState<string | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  // Exact requested messages
   const SIGN_IN_MSG = "Welcome back! Glad you’re here, your presence makes a difference.";
   const SIGN_OUT_MSG = "Thank you for giving your best today. Safe journey home.";
 
@@ -75,7 +76,7 @@ const App: React.FC = () => {
         setLastSync(new Date());
       }
     } catch (err) {
-      // Background fetch error silenced
+      // Silence background sync errors
     } finally {
       setIsSyncing(false);
     }
@@ -106,7 +107,7 @@ const App: React.FC = () => {
         source.connect(ctx.destination);
         source.start();
       } catch (err) {
-        console.warn("Audio blocked.");
+        console.warn("Audio blocked by browser.");
       }
     }
   };
@@ -127,6 +128,13 @@ const App: React.FC = () => {
   };
 
   const handleRecognition = useCallback(async (result: RecognitionResult) => {
+    // 1. Check for API key presence first
+    const apiKey = process.env.API_KEY;
+    if (!apiKey || apiKey === "undefined" || apiKey === "") {
+       setErrorOverlay("API Key is missing. Please ensure your environment is configured by adding API_KEY to your deployment variables.");
+       return;
+    }
+
     if (staffList.length === 0) {
       setToast({ message: "Register staff first to enable recognition.", type: 'error' });
       return;
@@ -151,7 +159,7 @@ const App: React.FC = () => {
 
         setHistory(prev => [newRecord, ...prev]);
         
-        // Show prominent on-screen overlay with requested messages
+        // Show prominent requested messages on screen
         setSuccessOverlay({
           name: result.staffName,
           avatar: currentStaff?.avatarUrl || '',
@@ -161,7 +169,7 @@ const App: React.FC = () => {
 
         playGreeting(clockMode);
         
-        // Clear overlay after 8 seconds
+        // Auto-close overlay
         setTimeout(() => setSuccessOverlay(null), 8000);
 
         if (webhookUrl) {
@@ -173,7 +181,11 @@ const App: React.FC = () => {
         setToast({ message: result.message || "Could not identify person.", type: 'error' });
       }
     } catch (err: any) {
-      setToast({ message: err.message || "Recognition Error.", type: 'error' });
+      if (err.message.includes("API Key")) {
+        setErrorOverlay(err.message);
+      } else {
+        setToast({ message: err.message || "Recognition Error.", type: 'error' });
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -181,9 +193,37 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
+      {/* ERROR OVERLAY FOR MISSING API KEY */}
+      {errorOverlay && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-300">
+           <div className="bg-white rounded-[40px] p-10 max-w-lg w-full shadow-2xl text-center border border-rose-100 scale-up-center">
+              <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg className="w-10 h-10 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-4">Configuration Required</h2>
+              <div className="bg-rose-50 p-6 rounded-3xl border border-rose-100 mb-8">
+                <p className="text-rose-900 font-bold leading-relaxed">
+                  {errorOverlay}
+                </p>
+              </div>
+              <p className="text-sm text-slate-500 mb-8 font-medium">
+                Please add your <code className="bg-slate-100 px-2 py-1 rounded text-indigo-600 font-mono">API_KEY</code> in your hosting provider's Environment Variables (e.g., Netlify/Vercel) and redeploy the application.
+              </p>
+              <button 
+                onClick={() => setErrorOverlay(null)}
+                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-800 transition-all active:scale-95"
+              >
+                GOT IT
+              </button>
+           </div>
+        </div>
+      )}
+
       {/* SUCCESS OVERLAY WITH SIGN IN/OUT MESSAGES */}
       {successOverlay && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-500">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-500">
            <div className="bg-white rounded-[60px] p-8 md:p-14 max-w-2xl w-full shadow-2xl text-center border border-white/20 scale-up-center relative overflow-hidden">
               <div className={`absolute top-0 left-0 right-0 h-4 ${
                 successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'
@@ -293,14 +333,14 @@ const App: React.FC = () => {
                 
                 <div className="mt-10 flex items-center justify-center gap-8 border-t border-slate-50 pt-8">
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Gemini Pro</p>
-                    <p className="text-xs font-bold text-slate-600">Vision 1.5</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">AI Engine</p>
+                    <p className="text-xs font-bold text-slate-600">Gemini 3 Flash</p>
                   </div>
                   <div className="w-px h-8 bg-slate-100"></div>
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Cloud Status</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Sync</p>
                     <p className="text-xs font-bold text-slate-600">
-                      {lastSync ? `Synced ${lastSync.toLocaleTimeString()}` : 'Not Active'}
+                      {lastSync ? lastSync.toLocaleTimeString() : 'Pending'}
                     </p>
                   </div>
                 </div>
@@ -309,13 +349,13 @@ const App: React.FC = () => {
             
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl h-full">
-                <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Daily Activity</h3>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Recent Logs</h3>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {history.length > 0 ? (
                     history.map(record => <AttendanceCard key={record.id} record={record} />)
                   ) : (
                     <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-300">
-                      <p className="font-bold text-sm">No activity recorded today.</p>
+                      <p className="font-bold text-sm">No scans detected yet.</p>
                     </div>
                   )}
                 </div>
@@ -330,7 +370,7 @@ const App: React.FC = () => {
               <StaffRegistration onRegister={handleRegister} />
             </div>
             <div className="lg:col-span-7 bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
-              <h3 className="text-2xl font-black text-slate-900 mb-8">Staff Directory</h3>
+              <h3 className="text-2xl font-black text-slate-900 mb-8">Registered Team</h3>
               <div className="grid sm:grid-cols-2 gap-4">
                 {staffList.length > 0 ? staffList.map(staff => (
                   <div key={staff.id} className="bg-slate-50 p-5 rounded-3xl border border-transparent hover:border-indigo-200 transition-all flex items-center gap-4">
@@ -342,7 +382,7 @@ const App: React.FC = () => {
                   </div>
                 )) : (
                    <div className="col-span-2 text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
-                     <p className="font-bold">No staff members found.</p>
+                     <p className="font-bold">Team database is empty</p>
                    </div>
                 )}
               </div>
