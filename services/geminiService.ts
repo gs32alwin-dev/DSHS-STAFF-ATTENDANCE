@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { RecognitionResult, StaffMember, AttendanceRecord } from "../types";
 
@@ -134,18 +133,26 @@ export class GeminiService {
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
     if (!url) return { success: false, message: "URL is empty" };
     try {
-      const response = await fetch(`${url}?action=test`, { method: 'GET', mode: 'cors' });
+      // Add a cache buster and explicit redirect following
+      const testUrl = `${url}${url.includes('?') ? '&' : '?'}action=test&t=${Date.now()}`;
+      const response = await fetch(testUrl, { 
+        method: 'GET', 
+        mode: 'cors',
+        cache: 'no-store',
+        redirect: 'follow'
+      });
       if (response.ok) return { success: true, message: "Connected successfully!" };
-      return { success: false, message: `Server returned status ${response.status}` };
+      return { success: false, message: `Server error: ${response.status}` };
     } catch (err) {
-      return { success: false, message: "Failed to fetch. Ensure 'Who has access' is set to 'Anyone'." };
+      console.error("Fetch test failed:", err);
+      return { success: false, message: "Network error. Check if 'Who has access' is set to 'Anyone' in Apps Script." };
     }
   }
 
   async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
     if (!webhookUrl) return { success: false };
     try {
-      // Use no-cors for POST because Google doesn't handle OPTIONS preflight well
+      // Use no-cors for POST to bypass CORS redirect issues with Google Scripts
       await fetch(webhookUrl, {
         method: 'POST',
         mode: 'no-cors',
@@ -162,17 +169,18 @@ export class GeminiService {
   async fetchCloudData(webhookUrl: string) {
     if (!webhookUrl || !webhookUrl.startsWith('http')) return null;
     try {
-      const response = await fetch(`${webhookUrl}?action=get_data`, {
+      const fetchUrl = `${webhookUrl}${webhookUrl.includes('?') ? '&' : '?'}action=get_data&t=${Date.now()}`;
+      const response = await fetch(fetchUrl, {
         method: 'GET',
-        mode: 'cors'
+        mode: 'cors',
+        cache: 'no-store',
+        redirect: 'follow'
       });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
-      // Don't log spammy errors to console unless it's a real issue
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-         // This is likely a CORS error due to incorrect "Anyone" setting
-         throw new Error("Cloud connectivity blocked. Check Apps Script 'Anyone' access setting.");
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+         throw new Error("Access Blocked: Ensure Apps Script is deployed with 'Anyone' access.");
       }
       throw error;
     }

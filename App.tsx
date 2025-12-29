@@ -69,7 +69,7 @@ const App: React.FC = () => {
       const interval = setInterval(fetchFromCloud, 30000);
       return () => clearInterval(interval);
     }
-  }, [webhookUrl]);
+  }, [webhookUrl, fetchFromCloud]);
 
   useEffect(() => localStorage.setItem('facetrack-v1-staff', JSON.stringify(staffList)), [staffList]);
   useEffect(() => localStorage.setItem('facetrack-v1-history', JSON.stringify(history)), [history]);
