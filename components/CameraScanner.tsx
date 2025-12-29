@@ -17,7 +17,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
   const [error, setError] = useState<string | null>(null);
   const [showFlash, setShowFlash] = useState(false);
   
-  // Zoom States (Retained for precision as requested previously)
+  // Zoom States
   const [zoom, setZoom] = useState(1);
   const [zoomRange, setZoomRange] = useState({ min: 1, max: 1 });
   const [supportsZoom, setSupportsZoom] = useState(false);
@@ -167,32 +167,31 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
              </div>
           </div>
 
-          {/* Large Manual Capture Button */}
-          <div className="absolute bottom-10 left-0 right-0 flex flex-col items-center gap-4 px-8 z-20">
+          {/* Manual Capture Button Area */}
+          <div className="absolute bottom-6 left-0 right-0 flex flex-col items-center gap-3 px-8 z-20">
             <button
               onClick={captureFrame}
               disabled={isProcessing}
-              className={`w-full py-5 rounded-[24px] font-black text-sm uppercase tracking-[3px] transition-all flex items-center justify-center gap-3 shadow-2xl
+              className={`w-32 py-3 rounded-full font-black text-xs uppercase tracking-[2px] transition-all flex items-center justify-center gap-2 shadow-2xl
                 ${isProcessing 
                   ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
                   : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 hover:shadow-indigo-500/40'}`}
             >
               {isProcessing ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  Verifying...
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                 </>
               ) : (
                 <>
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
-                  Mark Attendance
+                  CLICK
                 </>
               )}
             </button>
-            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">
-              Tap Button to capture & confirm identity
+            <p className="text-[8px] font-black text-white/40 uppercase tracking-widest">
+              Tap to Scan
             </p>
           </div>
         </>

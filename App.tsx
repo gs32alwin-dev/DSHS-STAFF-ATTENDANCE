@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CameraScanner } from './components/CameraScanner';
 import { AttendanceCard } from './components/AttendanceCard';
@@ -76,7 +77,7 @@ const App: React.FC = () => {
         setLastSync(new Date());
       }
     } catch (err) {
-      // Silence background sync errors
+      // Background sync error handled silently
     } finally {
       setIsSyncing(false);
     }
@@ -107,14 +108,14 @@ const App: React.FC = () => {
         source.connect(ctx.destination);
         source.start();
       } catch (err) {
-        console.warn("Audio blocked by browser.");
+        console.warn("Audio playback failed.");
       }
     }
   };
 
   const handleRegister = async (newStaff: StaffMember) => {
     if (staffList.some(s => s.id === newStaff.id)) {
-      setToast({ message: `ID ${newStaff.id} is already in use.`, type: 'error' });
+      setToast({ message: `ID ${newStaff.id} already exists.`, type: 'error' });
       return;
     }
     setStaffList(prev => [...prev, newStaff]);
@@ -128,15 +129,15 @@ const App: React.FC = () => {
   };
 
   const handleRecognition = useCallback(async (result: RecognitionResult) => {
-    // 1. Check for API key presence first
-    const apiKey = process.env.API_KEY;
-    if (!apiKey || apiKey === "undefined" || apiKey === "") {
-       setErrorOverlay("API Key is missing. Please ensure your environment is configured by adding API_KEY to your deployment variables.");
+    // Robust check for injected build-time API key
+    const currentApiKey = process.env.API_KEY;
+    if (!currentApiKey || currentApiKey === "undefined" || currentApiKey === "") {
+       setErrorOverlay("API Key is missing. Please ensure your environment is configured by adding API_KEY to your Netlify/Vercel dashboard and triggering a new build.");
        return;
     }
 
     if (staffList.length === 0) {
-      setToast({ message: "Register staff first to enable recognition.", type: 'error' });
+      setToast({ message: "No staff registered. Please register team members first.", type: 'error' });
       return;
     }
 
@@ -159,7 +160,7 @@ const App: React.FC = () => {
 
         setHistory(prev => [newRecord, ...prev]);
         
-        // Show prominent requested messages on screen
+        // Show high-impact on-screen success overlay with requested messages
         setSuccessOverlay({
           name: result.staffName,
           avatar: currentStaff?.avatarUrl || '',
@@ -169,8 +170,8 @@ const App: React.FC = () => {
 
         playGreeting(clockMode);
         
-        // Auto-close overlay
-        setTimeout(() => setSuccessOverlay(null), 8000);
+        // Success overlay persistence
+        setTimeout(() => setSuccessOverlay(null), 10000);
 
         if (webhookUrl) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl)
@@ -178,13 +179,13 @@ const App: React.FC = () => {
              .catch(() => {});
         }
       } else {
-        setToast({ message: result.message || "Could not identify person.", type: 'error' });
+        setToast({ message: result.message || "Identification failed. Ensure clear lighting.", type: 'error' });
       }
     } catch (err: any) {
       if (err.message.includes("API Key")) {
         setErrorOverlay(err.message);
       } else {
-        setToast({ message: err.message || "Recognition Error.", type: 'error' });
+        setToast({ message: err.message || "Unexpected error during recognition.", type: 'error' });
       }
     } finally {
       setIsProcessing(false);
@@ -193,234 +194,251 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
-      {/* ERROR OVERLAY FOR MISSING API KEY */}
+      {/* ERROR OVERLAY */}
       {errorOverlay && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-300">
            <div className="bg-white rounded-[40px] p-10 max-w-lg w-full shadow-2xl text-center border border-rose-100 scale-up-center">
               <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
                 <svg className="w-10 h-10 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-black text-slate-900 mb-4">Configuration Required</h2>
-              <div className="bg-rose-50 p-6 rounded-3xl border border-rose-100 mb-8">
-                <p className="text-rose-900 font-bold leading-relaxed">
-                  {errorOverlay}
-                </p>
-              </div>
-              <p className="text-sm text-slate-500 mb-8 font-medium">
-                Please add your <code className="bg-slate-100 px-2 py-1 rounded text-indigo-600 font-mono">API_KEY</code> in your hosting provider's Environment Variables (e.g., Netlify/Vercel) and redeploy the application.
+              <h3 className="text-xl font-black text-slate-900 mb-2">Configuration Required</h3>
+              <p className="text-slate-500 text-sm mb-6 leading-relaxed">
+                The Gemini API Key is missing. Please add <code className="bg-slate-100 px-1 rounded">API_KEY</code> to your environment variables and redeploy.
               </p>
               <button 
-                onClick={() => setErrorOverlay(null)}
-                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-800 transition-all active:scale-95"
+                onClick={() => window.location.reload()}
+                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-800 transition-all"
               >
-                GOT IT
+                Retry Connection
               </button>
            </div>
         </div>
       )}
 
-      {/* SUCCESS OVERLAY WITH SIGN IN/OUT MESSAGES */}
+      {/* SUCCESS OVERLAY */}
       {successOverlay && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-500">
-           <div className="bg-white rounded-[60px] p-8 md:p-14 max-w-2xl w-full shadow-2xl text-center border border-white/20 scale-up-center relative overflow-hidden">
-              <div className={`absolute top-0 left-0 right-0 h-4 ${
-                successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'
-              }`} />
-
-              <div className="relative inline-block mb-10">
-                <img 
-                  src={successOverlay.avatar} 
-                  className="w-40 h-40 md:w-52 md:h-52 rounded-[45px] mx-auto object-cover shadow-2xl border-4 border-white" 
-                  alt="" 
-                />
-                <div className={`absolute -bottom-4 -right-4 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl ${
-                  successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'
-                }`}>
-                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-indigo-900/90 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white rounded-[40px] p-10 max-w-sm w-full shadow-2xl text-center scale-up-center border-4 border-white/20">
+              <div className="relative inline-block mb-6">
+                 {successOverlay.avatar ? (
+                   <img src={successOverlay.avatar} alt={successOverlay.name} className="w-32 h-32 rounded-full object-cover border-4 border-indigo-100 mx-auto" />
+                 ) : (
+                   <div className="w-32 h-32 rounded-full bg-indigo-100 flex items-center justify-center text-4xl font-black text-indigo-600 mx-auto">
+                     {successOverlay.name.charAt(0)}
+                   </div>
+                 )}
+                 <div className={`absolute -bottom-2 -right-2 w-12 h-12 rounded-full flex items-center justify-center border-4 border-white shadow-lg ${successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                 </div>
               </div>
-              
-              <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tight">
-                {successOverlay.name}
-              </h2>
-              
-              <div className={`inline-block px-8 py-3 rounded-2xl text-[14px] font-black uppercase tracking-[5px] mb-12 ${
-                successOverlay.type === 'SIGN_IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-900'
-              }`}>
-                {successOverlay.type.replace('_', ' ')} SUCCESSFUL
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Verified!</h2>
+              <p className="text-indigo-600 font-bold mb-4">{successOverlay.name}</p>
+              <p className="text-slate-500 text-sm italic">"{successOverlay.message}"</p>
+              <div className="mt-8">
+                 <button 
+                  onClick={() => setSuccessOverlay(null)}
+                  className="px-8 py-3 bg-slate-100 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+                 >
+                   Dismiss
+                 </button>
               </div>
-              
-              <div className="bg-slate-50 p-10 rounded-[45px] border border-slate-100 shadow-inner">
-                <p className="text-3xl font-black text-slate-800 leading-tight">
-                  {successOverlay.message}
-                </p>
-              </div>
-              
-              <button 
-                onClick={() => setSuccessOverlay(null)}
-                className="mt-12 bg-slate-100 hover:bg-slate-200 px-10 py-4 rounded-3xl text-slate-400 text-xs font-black uppercase tracking-widest transition-all active:scale-95"
-              >
-                DISMISS
-              </button>
            </div>
         </div>
       )}
 
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100">
-            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+      {/* TOASTS */}
+      {toast && (
+        <div className={`fixed top-10 left-1/2 -translate-x-1/2 z-[600] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border animate-in slide-in-from-top-10 duration-300
+          ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 
+            toast.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-700' : 'bg-indigo-50 border-indigo-100 text-indigo-700'}`}>
+          <div className={`w-2 h-2 rounded-full ${toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-rose-500' : 'bg-indigo-500'}`}></div>
+          <span className="text-xs font-bold uppercase tracking-wider">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-50 transition-opacity">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      )}
+
+      {/* HEADER */}
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-40 px-6 py-5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-slate-900 rounded-2xl flex items-center justify-center shadow-lg">
+             <div className="w-5 h-5 border-[3px] border-white rounded-full"></div>
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 leading-none tracking-tight">FaceTrack Pro</h1>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {webhookUrl ? 'Sheet Linked' : 'Offline Mode'}
-              </p>
+            <h1 className="text-sm font-black text-slate-900 uppercase tracking-[3px]">FaceTrack AI</h1>
+            <div className="flex items-center gap-2">
+               <span className="flex w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Biometric Security Active</span>
             </div>
           </div>
         </div>
 
-        <nav className="flex bg-slate-100 p-1.5 rounded-2xl">
-          {[
-            { id: 'attendance', label: 'Scan' },
-            { id: 'registration', label: 'Staff' },
-            { id: 'settings', label: 'Setup' }
-          ].map(tab => (
-            <button 
-              key={tab.id}
-              onClick={() => { initAudio(); setActiveTab(tab.id as any); }}
-              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white shadow-md text-indigo-600' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+        <div className="flex items-center gap-4">
+           {lastSync && (
+             <span className="hidden md:block text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+               Cloud Synced: {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+             </span>
+           )}
+           <button 
+            onClick={fetchFromCloud}
+            disabled={isSyncing || !webhookUrl}
+            className={`p-2.5 rounded-xl border border-slate-100 transition-all ${isSyncing ? 'animate-spin' : 'hover:bg-slate-50 active:scale-95'}`}
+           >
+             <svg className={`w-5 h-5 ${webhookUrl ? 'text-indigo-600' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+             </svg>
+           </button>
+        </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 mt-8">
-        {activeTab === 'attendance' && (
-          <div className="grid lg:grid-cols-12 gap-10">
-            <div className="lg:col-span-7">
-              <div className="bg-white p-10 rounded-[40px] border border-slate-200 shadow-xl text-center relative overflow-hidden">
-                <div className="mb-6 inline-flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
-                  <button 
-                    onClick={() => { initAudio(); setClockMode('SIGN_IN'); }}
-                    className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_IN' ? 'bg-emerald-500 text-white shadow-xl scale-105' : 'text-slate-500'}`}
-                  >
-                    SIGN IN
-                  </button>
-                  <button 
-                    onClick={() => { initAudio(); setClockMode('SIGN_OUT'); }}
-                    className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_OUT' ? 'bg-indigo-900 text-white shadow-xl scale-105' : 'text-slate-500'}`}
-                  >
-                    SIGN OUT
-                  </button>
-                </div>
-
-                <div className="mb-8 h-16 flex flex-col justify-center">
-                  <h2 className={`text-xl font-black ${clockMode === 'SIGN_IN' ? 'text-emerald-600' : 'text-indigo-900'}`}>
-                    {clockMode === 'SIGN_IN' ? 'Clock In Session' : 'Clock Out Session'}
-                  </h2>
-                </div>
-                
-                <CameraScanner onResult={handleRecognition} isProcessing={isProcessing} staffList={staffList} />
-                
-                <div className="mt-10 flex items-center justify-center gap-8 border-t border-slate-50 pt-8">
-                  <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">AI Engine</p>
-                    <p className="text-xs font-bold text-slate-600">Gemini 3 Flash</p>
-                  </div>
-                  <div className="w-px h-8 bg-slate-100"></div>
-                  <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Sync</p>
-                    <p className="text-xs font-bold text-slate-600">
-                      {lastSync ? lastSync.toLocaleTimeString() : 'Pending'}
-                    </p>
-                  </div>
-                </div>
+      {/* MAIN CONTENT */}
+      <main className="max-w-7xl mx-auto px-6 mt-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+           
+           {/* LEFT COLUMN: SCANNER */}
+           <div className="lg:col-span-5 space-y-8">
+              <div className="flex items-center justify-between bg-white p-2 rounded-3xl border border-slate-100 shadow-sm">
+                 <button 
+                   onClick={() => setClockMode('SIGN_IN')}
+                   className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[3px] transition-all
+                     ${clockMode === 'SIGN_IN' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200' : 'text-slate-400 hover:bg-slate-50'}`}
+                 >
+                   Sign In
+                 </button>
+                 <button 
+                   onClick={() => setClockMode('SIGN_OUT')}
+                   className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[3px] transition-all
+                     ${clockMode === 'SIGN_OUT' ? 'bg-indigo-900 text-white shadow-lg shadow-indigo-200' : 'text-slate-400 hover:bg-slate-50'}`}
+                 >
+                   Sign Out
+                 </button>
               </div>
-            </div>
-            
-            <div className="lg:col-span-5 space-y-6">
-              <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl h-full">
-                <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Recent Logs</h3>
-                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                  {history.length > 0 ? (
-                    history.map(record => <AttendanceCard key={record.id} record={record} />)
-                  ) : (
-                    <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-300">
-                      <p className="font-bold text-sm">No scans detected yet.</p>
+
+              <div className="relative">
+                <CameraScanner 
+                  onResult={handleRecognition} 
+                  isProcessing={isProcessing} 
+                  staffList={staffList}
+                />
+              </div>
+
+              <div className="bg-indigo-600 rounded-[40px] p-8 text-white shadow-2xl relative overflow-hidden">
+                 <div className="relative z-10">
+                    <h3 className="text-lg font-black uppercase tracking-widest mb-1">Status Report</h3>
+                    <p className="text-white/60 text-xs mb-6">Real-time attendance summary</p>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="bg-white/10 backdrop-blur-md rounded-3xl p-5 border border-white/10">
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-60 block mb-1">Registered</span>
+                          <span className="text-2xl font-black">{staffList.length}</span>
+                       </div>
+                       <div className="bg-white/10 backdrop-blur-md rounded-3xl p-5 border border-white/10">
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-60 block mb-1">Today</span>
+                          <span className="text-2xl font-black">
+                            {new Set(history.filter(h => h.date === new Date().toLocaleDateString()).map(h => h.staffId)).size}
+                          </span>
+                       </div>
                     </div>
-                  )}
-                </div>
+                 </div>
+                 {/* Decorative element */}
+                 <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
               </div>
-            </div>
-          </div>
-        )}
+           </div>
 
-        {activeTab === 'registration' && (
-          <div className="grid lg:grid-cols-12 gap-10">
-            <div className="lg:col-span-5">
-              <StaffRegistration onRegister={handleRegister} />
-            </div>
-            <div className="lg:col-span-7 bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
-              <h3 className="text-2xl font-black text-slate-900 mb-8">Registered Team</h3>
-              <div className="grid sm:grid-cols-2 gap-4">
-                {staffList.length > 0 ? staffList.map(staff => (
-                  <div key={staff.id} className="bg-slate-50 p-5 rounded-3xl border border-transparent hover:border-indigo-200 transition-all flex items-center gap-4">
-                    <img src={staff.avatarUrl} className="w-14 h-14 rounded-2xl object-cover shadow-sm" alt="" />
-                    <div className="min-w-0">
-                      <h4 className="font-black text-slate-900 leading-tight truncate">{staff.name}</h4>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{staff.role}</p>
+           {/* RIGHT COLUMN: DATA */}
+           <div className="lg:col-span-7 space-y-8">
+              {/* TABS */}
+              <div className="flex gap-6 border-b border-slate-200">
+                 {['attendance', 'registration', 'settings'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab as any)}
+                      className={`pb-4 text-[10px] font-black uppercase tracking-[3px] transition-all relative
+                        ${activeTab === tab ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      {tab}
+                      {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600 rounded-full"></div>}
+                    </button>
+                 ))}
+              </div>
+
+              {/* TAB CONTENT */}
+              <div className="min-h-[600px]">
+                 {activeTab === 'attendance' && (
+                    <div className="space-y-6 animate-in fade-in duration-500">
+                       <div className="flex items-center justify-between">
+                          <h2 className="text-xl font-black text-slate-900">Recent Logs</h2>
+                          <button 
+                            onClick={() => { setHistory([]); localStorage.removeItem('facetrack-v1-history'); }}
+                            className="text-[10px] font-black text-slate-400 hover:text-rose-500 transition-colors uppercase tracking-widest"
+                          >
+                            Clear Local History
+                          </button>
+                       </div>
+                       
+                       {history.length === 0 ? (
+                         <div className="bg-white border border-slate-100 rounded-[40px] p-20 text-center shadow-sm">
+                            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                               <svg className="w-8 h-8 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No attendance recorded yet</p>
+                         </div>
+                       ) : (
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {history.slice(0, 10).map(record => (
+                              <AttendanceCard key={record.id} record={record} />
+                            ))}
+                         </div>
+                       )}
                     </div>
-                  </div>
-                )) : (
-                   <div className="col-span-2 text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
-                     <p className="font-bold">Team database is empty</p>
-                   </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+                 )}
 
-        {activeTab === 'settings' && (
-          <div className="max-w-3xl mx-auto">
-            <SheetConfig webhookUrl={webhookUrl} onUrlChange={setWebhookUrl} />
-          </div>
-        )}
+                 {activeTab === 'registration' && (
+                    <div className="animate-in slide-in-from-right-10 duration-500">
+                      <StaffRegistration onRegister={handleRegister} />
+                      <div className="mt-10">
+                         <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Registered Team Members</h3>
+                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                            {staffList.map(staff => (
+                              <div key={staff.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm text-center relative group">
+                                 <button 
+                                   onClick={() => setStaffList(prev => prev.filter(s => s.id !== staff.id))}
+                                   className="absolute top-2 right-2 w-6 h-6 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                 >
+                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                                 </button>
+                                 <img 
+                                   src={staff.avatarUrl} 
+                                   alt={staff.name} 
+                                   className="w-16 h-16 rounded-full object-cover mx-auto mb-3 border-2 border-slate-50"
+                                   onError={(e) => { (e.target as any).src = 'https://ui-avatars.com/api/?name=' + staff.name; }}
+                                 />
+                                 <h4 className="font-bold text-slate-800 text-xs truncate">{staff.name}</h4>
+                                 <p className="text-[9px] text-slate-400 font-medium uppercase tracking-widest">{staff.role}</p>
+                              </div>
+                            ))}
+                         </div>
+                      </div>
+                    </div>
+                 )}
+
+                 {activeTab === 'settings' && (
+                    <SheetConfig webhookUrl={webhookUrl} onUrlChange={setWebhookUrl} />
+                 )}
+              </div>
+           </div>
+        </div>
       </main>
 
-      {toast && (
-        <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[450px] p-6 rounded-3xl shadow-2xl flex items-center gap-4 z-[110] animate-bounce-in border border-white/10 backdrop-blur-xl
-          ${toast.type === 'success' ? 'bg-slate-900 text-white' : toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}>
-          <div className="shrink-0 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold">
-             {toast.type === 'success' ? '✓' : '!'}
-          </div>
-          <p className="text-sm font-bold leading-snug">{toast.message}</p>
-        </div>
-      )}
-
-      <style>{`
-        @keyframes scale-up-center {
-          0% { transform: scale(0.5); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        .scale-up-center { animation: scale-up-center 0.5s cubic-bezier(0.390, 0.575, 0.565, 1.000) both; }
-        
-        @keyframes bounce-in {
-          0% { transform: translateY(100px); opacity: 0; }
-          70% { transform: translateY(-10px); opacity: 1; }
-          100% { transform: translateY(0); opacity: 1; }
-        }
-        .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-      `}</style>
+      {/* FOOTER */}
+      <footer className="mt-20 border-t border-slate-100 py-10 text-center">
+         <p className="text-[10px] font-black text-slate-300 uppercase tracking-[5px]">Biometric Attendance Terminal • v1.2.0</p>
+      </footer>
     </div>
   );
 };
