@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CameraScanner } from './components/CameraScanner';
 import { AttendanceCard } from './components/AttendanceCard';
@@ -20,7 +19,7 @@ const App: React.FC = () => {
   const [flicker, setFlicker] = useState<'SIGN_IN' | 'SIGN_OUT' | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Persistence: Load data on mount
+  // Load persistent data
   useEffect(() => {
     const savedStaff = localStorage.getItem('facetrack-v1-staff');
     if (savedStaff) setStaffList(JSON.parse(savedStaff));
@@ -32,7 +31,6 @@ const App: React.FC = () => {
     if (savedUrl) setWebhookUrl(savedUrl);
   }, []);
 
-  // REAL-TIME SYNC LOGIC
   const fetchFromCloud = useCallback(async () => {
     if (!webhookUrl || isSyncing) return;
     
@@ -57,7 +55,7 @@ const App: React.FC = () => {
         setLastSync(new Date());
       }
     } catch (err) {
-      console.warn("Sync temporarily unavailable.");
+      console.warn("Sync unavailable.");
     } finally {
       setIsSyncing(false);
     }
@@ -66,7 +64,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (webhookUrl) {
       fetchFromCloud();
-      const interval = setInterval(fetchFromCloud, 60000); // Check every minute
+      const interval = setInterval(fetchFromCloud, 60000);
       return () => clearInterval(interval);
     }
   }, [webhookUrl, fetchFromCloud]);
@@ -77,7 +75,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(null), 6000);
+      const timer = setTimeout(() => setToast(null), 8000);
       return () => clearTimeout(timer);
     }
   }, [toast]);
@@ -87,10 +85,10 @@ const App: React.FC = () => {
     setTimeout(() => setFlicker(null), 300);
   };
 
-  const playGreeting = async (name: string, type: 'SIGN_IN' | 'SIGN_OUT') => {
+  const playGreeting = async (type: 'SIGN_IN' | 'SIGN_OUT') => {
     const text = type === 'SIGN_IN' 
-      ? `Hi ${name}, welcome! glad you are here.` 
-      : `Goodbye ${name}, thank you for your hard work.`;
+      ? `Welcome back! Glad you’re here, your presence makes a difference.` 
+      : `Thank you for giving your best today. Safe journey home.`;
 
     const audioData = await geminiService.generateSpeech(text);
     if (audioData) {
@@ -105,7 +103,7 @@ const App: React.FC = () => {
         source.connect(ctx.destination);
         source.start();
       } catch (err) {
-        console.warn("Audio playback failed", err);
+        console.warn("Audio error", err);
       }
     }
   };
@@ -147,16 +145,20 @@ const App: React.FC = () => {
           method: 'FACE_RECOGNITION'
         };
 
+        const greetingText = clockMode === 'SIGN_IN' 
+          ? "Welcome back! Glad you’re here, your presence makes a difference."
+          : "Thank you for giving your best today. Safe journey home.";
+
         setHistory(prev => [newRecord, ...prev]);
         triggerFlicker(clockMode);
-        playGreeting(result.staffName, clockMode);
+        playGreeting(clockMode);
 
         if (webhookUrl) {
            await geminiService.syncToGoogleSheets(newRecord, webhookUrl);
-           setToast({ message: `Success: ${result.staffName} identified.`, type: 'success' });
+           setToast({ message: `Success: ${result.staffName}. ${greetingText}`, type: 'success' });
            fetchFromCloud();
         } else {
-           setToast({ message: `Identified: ${result.staffName}`, type: 'info' });
+           setToast({ message: `Identified: ${result.staffName}. ${greetingText}`, type: 'info' });
         }
       } else {
         setToast({ message: result.message || "Not recognized. Try again.", type: 'error' });
@@ -171,7 +173,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
       {flicker && (
-        <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-150 ${flicker === 'SIGN_IN' ? 'bg-emerald-500/40' : 'bg-blue-600/40'}`} />
+        <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-150 ${flicker === 'SIGN_IN' ? 'bg-emerald-500/40' : 'bg-indigo-900/40'}`} />
       )}
 
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
@@ -212,7 +214,7 @@ const App: React.FC = () => {
           <div className="grid lg:grid-cols-12 gap-10 animate-in fade-in slide-in-from-bottom-6 duration-700">
             <div className="lg:col-span-7">
               <div className="bg-white p-10 rounded-[40px] border border-slate-200 shadow-xl text-center relative overflow-hidden">
-                <div className="mb-10 inline-flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
+                <div className="mb-4 inline-flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
                   <button 
                     onClick={() => setClockMode('SIGN_IN')}
                     className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_IN' ? 'bg-emerald-500 text-white shadow-xl scale-105' : 'text-slate-500'}`}
@@ -221,10 +223,21 @@ const App: React.FC = () => {
                   </button>
                   <button 
                     onClick={() => setClockMode('SIGN_OUT')}
-                    className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_OUT' ? 'bg-blue-600 text-white shadow-xl scale-105' : 'text-slate-500'}`}
+                    className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_OUT' ? 'bg-indigo-900 text-white shadow-xl scale-105' : 'text-slate-500'}`}
                   >
                     SIGN OUT
                   </button>
+                </div>
+
+                <div className="mb-8">
+                  <h2 className="text-lg font-bold text-slate-800">
+                    {clockMode === 'SIGN_IN' ? 'Sign In Portal' : 'Sign Out Portal'}
+                  </h2>
+                  <p className="text-sm text-slate-500 italic max-w-sm mx-auto">
+                    {clockMode === 'SIGN_IN' 
+                      ? "Welcome back! Glad you’re here, your presence makes a difference."
+                      : "Thank you for giving your best today. Safe journey home."}
+                  </p>
                 </div>
                 
                 <CameraScanner onResult={handleRecognition} isProcessing={isProcessing} staffList={staffList} />
