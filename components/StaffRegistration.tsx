@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback } from 'react';
 import Cropper from 'react-easy-crop';
 import { StaffMember } from '../types';
@@ -17,7 +16,6 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
   const [photo, setPhoto] = useState<string | null>(null);
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   
-  // Cropper states
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -50,50 +48,53 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
     });
 
   const getCroppedImg = async (imageSrc: string, pixelCrop: Area, rotation = 0): Promise<string | null> => {
-    const image = await createImage(imageSrc);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    try {
+      const image = await createImage(imageSrc);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
 
-    if (!ctx) return null;
+      if (!ctx) return null;
 
-    const rotRad = (rotation * Math.PI) / 180;
-    const { width: bBoxWidth, height: bBoxHeight } = {
-        width: Math.abs(Math.cos(rotRad) * image.width) + Math.abs(Math.sin(rotRad) * image.height),
-        height: Math.abs(Math.sin(rotRad) * image.width) + Math.abs(Math.cos(rotRad) * image.height),
-    };
+      const rotRad = (rotation * Math.PI) / 180;
+      const { width: bBoxWidth, height: bBoxHeight } = {
+          width: Math.abs(Math.cos(rotRad) * image.width) + Math.abs(Math.sin(rotRad) * image.height),
+          height: Math.abs(Math.sin(rotRad) * image.width) + Math.abs(Math.cos(rotRad) * image.height),
+      };
 
-    canvas.width = bBoxWidth;
-    canvas.height = bBoxHeight;
+      canvas.width = bBoxWidth;
+      canvas.height = bBoxHeight;
 
-    ctx.translate(bBoxWidth / 2, bBoxHeight / 2);
-    ctx.rotate(rotRad);
-    ctx.translate(-image.width / 2, -image.height / 2);
+      ctx.translate(bBoxWidth / 2, bBoxHeight / 2);
+      ctx.rotate(rotRad);
+      ctx.translate(-image.width / 2, -image.height / 2);
 
-    ctx.drawImage(image, 0, 0);
+      ctx.drawImage(image, 0, 0);
 
-    const data = ctx.getImageData(
-      pixelCrop.x,
-      pixelCrop.y,
-      pixelCrop.width,
-      pixelCrop.height
-    );
+      const data = ctx.getImageData(
+        pixelCrop.x,
+        pixelCrop.y,
+        pixelCrop.width,
+        pixelCrop.height
+      );
 
-    canvas.width = pixelCrop.width;
-    canvas.height = pixelCrop.height;
+      canvas.width = pixelCrop.width;
+      canvas.height = pixelCrop.height;
 
-    ctx.putImageData(data, 0, 0);
+      ctx.putImageData(data, 0, 0);
 
-    return canvas.toDataURL('image/jpeg');
+      return canvas.toDataURL('image/jpeg');
+    } catch (e) {
+      console.error("Crop error:", e);
+      return null;
+    }
   };
 
   const handleSaveCrop = async () => {
     if (imageToCrop && croppedAreaPixels) {
-      try {
-        const croppedImage = await getCroppedImg(imageToCrop, croppedAreaPixels, rotation);
+      const croppedImage = await getCroppedImg(imageToCrop, croppedAreaPixels, rotation);
+      if (croppedImage) {
         setPhoto(croppedImage);
         setImageToCrop(null);
-      } catch (e) {
-        console.error(e);
       }
     }
   };
@@ -153,7 +154,7 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
             value={role}
             onChange={(e) => setRole(e.target.value)}
             className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-            placeholder="e.g. Sales Executive"
+            placeholder="e.g. Designer"
           />
         </div>
         <div>
@@ -178,7 +179,6 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
                   </svg>
                 </div>
                 <span className="text-sm text-slate-500 font-medium">Upload or Take Photo</span>
-                <p className="text-[10px] text-slate-400 mt-1">Clear face shots work best</p>
               </>
             )}
             <input 
@@ -193,25 +193,18 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
         <button
           type="submit"
           disabled={!name || !role || !photo || !staffId}
-          className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed shadow-lg"
+          className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed"
         >
           Complete Registration
         </button>
       </form>
 
-      {/* Cropping Modal Overlay */}
       {imageToCrop && (
         <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-300">
+          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <div>
-                <h4 className="text-lg font-bold text-slate-900">Adjust Photo</h4>
-                <p className="text-xs text-slate-500">Center the face in the circle</p>
-              </div>
-              <button 
-                onClick={() => setImageToCrop(null)}
-                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
-              >
+              <h4 className="text-lg font-bold text-slate-900">Adjust Photo</h4>
+              <button onClick={() => setImageToCrop(null)} className="p-2 hover:bg-slate-100 rounded-full">
                 <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -224,7 +217,6 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
                 rotation={rotation}
                 aspect={1}
                 cropShape="round"
-                showGrid={false}
                 onCropChange={setCrop}
                 onRotationChange={setRotation}
                 onCropComplete={onCropComplete}
@@ -232,50 +224,9 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
               />
             </div>
 
-            <div className="p-6 space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold text-slate-400 min-w-[45px]">ZOOM</span>
-                  <input
-                    type="range"
-                    value={zoom}
-                    min={1}
-                    max={3}
-                    step={0.1}
-                    aria-labelledby="Zoom"
-                    onChange={(e) => setZoom(Number(e.target.value))}
-                    className="flex-grow h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                  />
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold text-slate-400 min-w-[45px]">ROTATE</span>
-                  <input
-                    type="range"
-                    value={rotation}
-                    min={0}
-                    max={360}
-                    step={1}
-                    aria-labelledby="Rotation"
-                    onChange={(e) => setRotation(Number(e.target.value))}
-                    className="flex-grow h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setImageToCrop(null)}
-                  className="flex-grow py-3 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleSaveCrop}
-                  className="flex-grow py-3 px-4 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-                >
-                  Save & Apply
-                </button>
-              </div>
+            <div className="p-6 flex gap-3">
+              <button onClick={() => setImageToCrop(null)} className="flex-grow py-3 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold">Cancel</button>
+              <button onClick={handleSaveCrop} className="flex-grow py-3 px-4 rounded-xl bg-indigo-600 text-white font-bold">Save & Apply</button>
             </div>
           </div>
         </div>

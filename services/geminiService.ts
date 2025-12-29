@@ -1,47 +1,56 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { RecognitionResult, StaffMember, AttendanceRecord } from "../types";
 
 export class GeminiService {
-  private ai: GoogleGenAI;
-
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  }
-
+  /**
+   * Identifies a staff member from a probe image by comparing it against registered staff.
+   * Uses gemini-3-pro-preview for complex reasoning across multiple images.
+   */
   async identifyStaff(probeImageBase64: string, staffList: StaffMember[]): Promise<RecognitionResult> {
     try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       const parts: any[] = [];
 
-      // Add reference images from the staff list
+      // Add reference images with their specific MIME types
       staffList.forEach((staff) => {
-        if (staff.avatarUrl.startsWith('data:image')) {
+        if (staff.avatarUrl && staff.avatarUrl.includes('base64,')) {
+          const mimeType = staff.avatarUrl.split(';')[0].split(':')[1] || 'image/jpeg';
           const base64Data = staff.avatarUrl.split(',')[1];
+          
           parts.push({
             inlineData: {
-              mimeType: 'image/jpeg',
+              mimeType: mimeType,
               data: base64Data
             }
           });
-          parts.push({ text: `Person: ${staff.name}, ID: ${staff.id}, Role: ${staff.role}` });
+          parts.push({ text: `Name: ${staff.name}, ID: ${staff.id}, Role: ${staff.role}` });
         }
       });
 
+      // Task instructions
       parts.push({
         text: `
-          TASK: Match the person in the FINAL image with one of the reference people provided above.
-          Only identify if you are very confident (85%+).
+          TASK: Compare the last image provided (the "probe") against the reference staff images provided above.
+          Identify which staff member is in the probe image.
           
-          Return JSON:
+          CRITERIA:
+          1. Only mark "identified": true if the confidence score is above 0.85.
+          2. Consider facial structure, hair, and distinctive features.
+          3. If the person is not in the reference list, mark "identified": false.
+
+          Return exactly this JSON structure:
           {
             "identified": boolean,
-            "staffId": "string",
-            "staffName": "string",
+            "staffId": "string or null",
+            "staffName": "string or null",
             "confidence": number,
             "message": "string"
           }
         `
       });
 
+      // The live probe image
       parts.push({
         inlineData: {
           mimeType: 'image/jpeg',
@@ -49,8 +58,8 @@ export class GeminiService {
         }
       });
 
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
         contents: { parts },
         config: {
           responseMimeType: "application/json",
@@ -58,8 +67,8 @@ export class GeminiService {
             type: Type.OBJECT,
             properties: {
               identified: { type: Type.BOOLEAN },
-              staffId: { type: Type.STRING },
-              staffName: { type: Type.STRING },
+              staffId: { type: Type.STRING, nullable: true },
+              staffName: { type: Type.STRING, nullable: true },
               confidence: { type: Type.NUMBER },
               message: { type: Type.STRING }
             },
@@ -68,16 +77,23 @@ export class GeminiService {
         }
       });
 
-      return JSON.parse(response.text || '{}') as RecognitionResult;
-    } catch (error) {
-      console.error("Gemini Error:", error);
-      throw error;
+      const text = response.text;
+      if (!text) throw new Error("Empty response from AI");
+      return JSON.parse(text) as RecognitionResult;
+    } catch (error: any) {
+      console.error("Gemini Identification Error:", error);
+      // Surface the error details for debugging
+      throw new Error(error.message || "Internal AI Error during identification");
     }
   }
 
+  /**
+   * Generates spoken greeting using Gemini TTS
+   */
   async generateSpeech(text: string): Promise<Uint8Array | null> {
     try {
-      const response = await this.ai.models.generateContent({
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
         config: {
@@ -133,7 +149,6 @@ export class GeminiService {
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
     if (!url) return { success: false, message: "URL is empty" };
     try {
-      // Add a cache buster and explicit redirect following
       const testUrl = `${url}${url.includes('?') ? '&' : '?'}action=test&t=${Date.now()}`;
       const response = await fetch(testUrl, { 
         method: 'GET', 
@@ -141,18 +156,16 @@ export class GeminiService {
         cache: 'no-store',
         redirect: 'follow'
       });
-      if (response.ok) return { success: true, message: "Connected successfully!" };
-      return { success: false, message: `Server error: ${response.status}` };
+      if (response.ok) return { success: true, message: "Connected!" };
+      return { success: false, message: `HTTP ${response.status}` };
     } catch (err) {
-      console.error("Fetch test failed:", err);
-      return { success: false, message: "Network error. Check if 'Who has access' is set to 'Anyone' in Apps Script." };
+      return { success: false, message: "Network Error. Check Apps Script permissions." };
     }
   }
 
   async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
     if (!webhookUrl) return { success: false };
     try {
-      // Use no-cors for POST to bypass CORS redirect issues with Google Scripts
       await fetch(webhookUrl, {
         method: 'POST',
         mode: 'no-cors',
@@ -179,9 +192,6 @@ export class GeminiService {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-         throw new Error("Access Blocked: Ensure Apps Script is deployed with 'Anyone' access.");
-      }
       throw error;
     }
   }
