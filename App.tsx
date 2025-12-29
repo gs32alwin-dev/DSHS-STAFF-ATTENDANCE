@@ -19,7 +19,15 @@ const App: React.FC = () => {
   const [flicker, setFlicker] = useState<'SIGN_IN' | 'SIGN_OUT' | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Load persistent data
+  // Initialize AudioContext on first interaction
+  const initAudio = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    } else if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+  }, []);
+
   useEffect(() => {
     const savedStaff = localStorage.getItem('facetrack-v1-staff');
     if (savedStaff) setStaffList(JSON.parse(savedStaff));
@@ -33,7 +41,6 @@ const App: React.FC = () => {
 
   const fetchFromCloud = useCallback(async () => {
     if (!webhookUrl || isSyncing) return;
-    
     setIsSyncing(true);
     try {
       const cloudData = await geminiService.fetchCloudData(webhookUrl);
@@ -55,7 +62,7 @@ const App: React.FC = () => {
         setLastSync(new Date());
       }
     } catch (err) {
-      console.warn("Sync unavailable.");
+      console.warn("Cloud sync failed.");
     } finally {
       setIsSyncing(false);
     }
@@ -75,27 +82,25 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(null), 8000);
+      const timer = setTimeout(() => setToast(null), 10000); // Longer duration for the warm messages
       return () => clearTimeout(timer);
     }
   }, [toast]);
 
   const triggerFlicker = (type: 'SIGN_IN' | 'SIGN_OUT') => {
     setFlicker(type);
-    setTimeout(() => setFlicker(null), 300);
+    setTimeout(() => setFlicker(null), 400);
   };
 
   const playGreeting = async (type: 'SIGN_IN' | 'SIGN_OUT') => {
+    initAudio();
     const text = type === 'SIGN_IN' 
       ? `Welcome back! Glad you’re here, your presence makes a difference.` 
       : `Thank you for giving your best today. Safe journey home.`;
 
     const audioData = await geminiService.generateSpeech(text);
-    if (audioData) {
+    if (audioData && audioContextRef.current) {
       try {
-        if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        }
         const ctx = audioContextRef.current;
         const audioBuffer = await geminiService.decodeAudioData(audioData, ctx, 24000, 1);
         const source = ctx.createBufferSource();
@@ -103,7 +108,7 @@ const App: React.FC = () => {
         source.connect(ctx.destination);
         source.start();
       } catch (err) {
-        console.warn("Audio error", err);
+        console.error("Audio playback error:", err);
       }
     }
   };
@@ -114,10 +119,9 @@ const App: React.FC = () => {
       return;
     }
     setStaffList(prev => [...prev, newStaff]);
-    
     if (webhookUrl) {
-      await geminiService.syncStaffToCloud(newStaff, webhookUrl);
-      setToast({ message: `${newStaff.name} registered and synced!`, type: 'success' });
+      geminiService.syncStaffToCloud(newStaff, webhookUrl);
+      setToast({ message: `${newStaff.name} registered successfully.`, type: 'success' });
     } else {
       setToast({ message: `${newStaff.name} registered locally.`, type: 'success' });
     }
@@ -126,7 +130,7 @@ const App: React.FC = () => {
 
   const handleRecognition = useCallback(async (result: RecognitionResult) => {
     if (staffList.length === 0) {
-      setToast({ message: "No staff registered. Add staff first.", type: 'error' });
+      setToast({ message: "No staff registered. Please add staff members first.", type: 'error' });
       return;
     }
 
@@ -145,35 +149,39 @@ const App: React.FC = () => {
           method: 'FACE_RECOGNITION'
         };
 
-        const greetingText = clockMode === 'SIGN_IN' 
+        const greetingMsg = clockMode === 'SIGN_IN' 
           ? "Welcome back! Glad you’re here, your presence makes a difference."
           : "Thank you for giving your best today. Safe journey home.";
 
+        // --- STEP 1: INSTANT FEEDBACK ---
         setHistory(prev => [newRecord, ...prev]);
         triggerFlicker(clockMode);
         playGreeting(clockMode);
+        setToast({ message: `${result.staffName}: ${greetingMsg}`, type: 'success' });
 
+        // --- STEP 2: BACKGROUND SYNC ---
         if (webhookUrl) {
-           await geminiService.syncToGoogleSheets(newRecord, webhookUrl);
-           setToast({ message: `Success: ${result.staffName}. ${greetingText}`, type: 'success' });
-           fetchFromCloud();
-        } else {
-           setToast({ message: `Identified: ${result.staffName}. ${greetingText}`, type: 'info' });
+           geminiService.syncToGoogleSheets(newRecord, webhookUrl)
+             .then(() => fetchFromCloud())
+             .catch(err => console.error("Cloud sync failed in background", err));
         }
       } else {
-        setToast({ message: result.message || "Not recognized. Try again.", type: 'error' });
+        setToast({ message: result.message || "Face not recognized. Please try again.", type: 'error' });
       }
     } catch (err: any) {
-      setToast({ message: err.message || "AI Analysis Failed.", type: 'error' });
+      setToast({ message: err.message || "AI Identification failed.", type: 'error' });
     } finally {
       setIsProcessing(false);
     }
-  }, [staffList, webhookUrl, clockMode, fetchFromCloud]);
+  }, [staffList, webhookUrl, clockMode, fetchFromCloud, initAudio]);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
+      {/* Visual Feedback Overlays */}
       {flicker && (
-        <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-150 ${flicker === 'SIGN_IN' ? 'bg-emerald-500/40' : 'bg-indigo-900/40'}`} />
+        <div className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-300 ${
+          flicker === 'SIGN_IN' ? 'bg-emerald-500/30' : 'bg-indigo-900/40'
+        }`} />
       )}
 
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
@@ -186,7 +194,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1.5">
               <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {webhookUrl ? 'Cloud Sync Active' : 'Offline Mode'}
+                {webhookUrl ? 'Cloud Connection Active' : 'Offline Storage Mode'}
               </p>
             </div>
           </div>
@@ -200,7 +208,7 @@ const App: React.FC = () => {
           ].map(tab => (
             <button 
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => { initAudio(); setActiveTab(tab.id as any); }}
               className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white shadow-md text-indigo-600' : 'text-slate-500 hover:text-slate-800'}`}
             >
               {tab.label}
@@ -211,32 +219,32 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-6 mt-8">
         {activeTab === 'attendance' && (
-          <div className="grid lg:grid-cols-12 gap-10 animate-in fade-in slide-in-from-bottom-6 duration-700">
+          <div className="grid lg:grid-cols-12 gap-10">
             <div className="lg:col-span-7">
               <div className="bg-white p-10 rounded-[40px] border border-slate-200 shadow-xl text-center relative overflow-hidden">
-                <div className="mb-4 inline-flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
+                <div className="mb-6 inline-flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
                   <button 
-                    onClick={() => setClockMode('SIGN_IN')}
+                    onClick={() => { initAudio(); setClockMode('SIGN_IN'); }}
                     className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_IN' ? 'bg-emerald-500 text-white shadow-xl scale-105' : 'text-slate-500'}`}
                   >
                     SIGN IN
                   </button>
                   <button 
-                    onClick={() => setClockMode('SIGN_OUT')}
+                    onClick={() => { initAudio(); setClockMode('SIGN_OUT'); }}
                     className={`px-10 py-4 rounded-xl text-sm font-black transition-all ${clockMode === 'SIGN_OUT' ? 'bg-indigo-900 text-white shadow-xl scale-105' : 'text-slate-500'}`}
                   >
                     SIGN OUT
                   </button>
                 </div>
 
-                <div className="mb-8">
-                  <h2 className="text-lg font-bold text-slate-800">
-                    {clockMode === 'SIGN_IN' ? 'Sign In Portal' : 'Sign Out Portal'}
+                <div className="mb-8 h-16 flex flex-col justify-center">
+                  <h2 className={`text-xl font-black ${clockMode === 'SIGN_IN' ? 'text-emerald-600' : 'text-indigo-900'}`}>
+                    {clockMode === 'SIGN_IN' ? 'Welcome Back Portal' : 'Safe Journey Portal'}
                   </h2>
-                  <p className="text-sm text-slate-500 italic max-w-sm mx-auto">
+                  <p className="text-sm text-slate-500 italic mt-1 px-8">
                     {clockMode === 'SIGN_IN' 
-                      ? "Welcome back! Glad you’re here, your presence makes a difference."
-                      : "Thank you for giving your best today. Safe journey home."}
+                      ? "Glad you’re here, your presence makes a difference."
+                      : "Thank you for giving your best today."}
                   </p>
                 </div>
                 
@@ -244,14 +252,14 @@ const App: React.FC = () => {
                 
                 <div className="mt-10 flex items-center justify-center gap-8 border-t border-slate-50 pt-8">
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">AI Core</p>
-                    <p className="text-xs font-bold text-slate-600">Gemini 3 Pro</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Recognition Engine</p>
+                    <p className="text-xs font-bold text-slate-600">Gemini 3 Pro Vision</p>
                   </div>
                   <div className="w-px h-8 bg-slate-100"></div>
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Sync Info</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Sync</p>
                     <p className="text-xs font-bold text-slate-600">
-                      {lastSync ? `Updated ${lastSync.toLocaleTimeString()}` : 'No Cloud Data'}
+                      {lastSync ? lastSync.toLocaleTimeString() : 'Awaiting Connection'}
                     </p>
                   </div>
                 </div>
@@ -261,15 +269,15 @@ const App: React.FC = () => {
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
                 <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Activity History</h3>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Recent Activity</h3>
                 </div>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {history.length > 0 ? (
                     history.map(record => <AttendanceCard key={record.id} record={record} />)
                   ) : (
-                    <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-400">
-                      <p className="font-bold">No Records</p>
-                      <p className="text-[10px] uppercase mt-1">Ready for first scan</p>
+                    <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-300">
+                      <p className="font-bold text-sm">No recent attendance found</p>
+                      <p className="text-[10px] uppercase mt-1 tracking-widest">Awaiting system scans</p>
                     </div>
                   )}
                 </div>
@@ -284,17 +292,21 @@ const App: React.FC = () => {
               <StaffRegistration onRegister={handleRegister} />
             </div>
             <div className="lg:col-span-7 bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
-              <h3 className="text-2xl font-black text-slate-900 mb-8">Registered Staff</h3>
+              <h3 className="text-2xl font-black text-slate-900 mb-8">Staff Directory</h3>
               <div className="grid sm:grid-cols-2 gap-4">
-                {staffList.map(staff => (
+                {staffList.length > 0 ? staffList.map(staff => (
                   <div key={staff.id} className="bg-slate-50 p-5 rounded-3xl border border-transparent hover:border-indigo-200 transition-all flex items-center gap-4">
-                    <img src={staff.avatarUrl} className="w-14 h-14 rounded-2xl object-cover" alt="" />
+                    <img src={staff.avatarUrl} className="w-14 h-14 rounded-2xl object-cover shadow-sm" alt="" />
                     <div>
                       <h4 className="font-black text-slate-900 leading-tight">{staff.name}</h4>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{staff.role}</p>
                     </div>
                   </div>
-                ))}
+                )) : (
+                   <div className="col-span-2 text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
+                     <p className="font-bold">No Staff Members Registered</p>
+                   </div>
+                )}
               </div>
             </div>
           </div>
@@ -308,9 +320,12 @@ const App: React.FC = () => {
       </main>
 
       {toast && (
-        <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[400px] p-5 rounded-3xl shadow-2xl flex items-center gap-4 z-[60] animate-bounce-in border border-white/20 backdrop-blur-md
+        <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[450px] p-6 rounded-3xl shadow-2xl flex items-center gap-4 z-[110] animate-bounce-in border border-white/20 backdrop-blur-xl
           ${toast.type === 'success' ? 'bg-slate-900 text-white' : toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}>
-          <p className="text-sm font-black leading-tight">{toast.message}</p>
+          <div className="shrink-0 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+             {toast.type === 'success' ? '✨' : '⚠️'}
+          </div>
+          <p className="text-sm font-bold leading-snug">{toast.message}</p>
         </div>
       )}
 
@@ -320,7 +335,7 @@ const App: React.FC = () => {
           70% { transform: translateY(-10px); opacity: 1; }
           100% { transform: translateY(0); opacity: 1; }
         }
-        .animate-bounce-in { animation: bounce-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
       `}</style>
