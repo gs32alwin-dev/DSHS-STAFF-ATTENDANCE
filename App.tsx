@@ -151,7 +151,7 @@ const App: React.FC = () => {
 
         setHistory(prev => [newRecord, ...prev]);
         
-        // Show prominent on-screen overlay with your requested messages
+        // Show prominent on-screen overlay with requested messages
         setSuccessOverlay({
           name: result.staffName,
           avatar: currentStaff?.avatarUrl || '',
@@ -161,7 +161,7 @@ const App: React.FC = () => {
 
         playGreeting(clockMode);
         
-        // Clear overlay after 8 seconds for better readability
+        // Clear overlay after 8 seconds
         setTimeout(() => setSuccessOverlay(null), 8000);
 
         if (webhookUrl) {
@@ -181,51 +181,50 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
-      {/* SUCCESS MESSAGE DISPLAY ON SCREEN */}
+      {/* SUCCESS OVERLAY WITH SIGN IN/OUT MESSAGES */}
       {successOverlay && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-3xl animate-in fade-in duration-500">
-           <div className="bg-white rounded-[50px] p-8 md:p-14 max-w-xl w-full shadow-2xl text-center border border-white/20 scale-up-center relative overflow-hidden">
-              {/* Background accent */}
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-3xl animate-in fade-in duration-500">
+           <div className="bg-white rounded-[60px] p-8 md:p-14 max-w-2xl w-full shadow-2xl text-center border border-white/20 scale-up-center relative overflow-hidden">
               <div className={`absolute top-0 left-0 right-0 h-4 ${
                 successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'
               }`} />
 
-              <div className="relative inline-block mb-8">
+              <div className="relative inline-block mb-10">
                 <img 
                   src={successOverlay.avatar} 
-                  className="w-32 h-32 md:w-44 md:h-44 rounded-[40px] mx-auto object-cover shadow-2xl border-4 border-white" 
+                  className="w-40 h-40 md:w-52 md:h-52 rounded-[45px] mx-auto object-cover shadow-2xl border-4 border-white" 
                   alt="" 
                 />
-                <div className={`absolute -bottom-3 -right-3 w-12 h-12 rounded-full flex items-center justify-center text-white shadow-lg ${
+                <div className={`absolute -bottom-4 -right-4 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl ${
                   successOverlay.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-600'
                 }`}>
-                  <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
               </div>
               
-              <h2 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">
+              <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tight">
                 {successOverlay.name}
               </h2>
               
-              <div className={`inline-block px-6 py-2 rounded-2xl text-[12px] font-black uppercase tracking-[4px] mb-10 ${
+              <div className={`inline-block px-8 py-3 rounded-2xl text-[14px] font-black uppercase tracking-[5px] mb-12 ${
                 successOverlay.type === 'SIGN_IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-900'
               }`}>
-                {successOverlay.type.replace('_', ' ')} RECORDED
+                {successOverlay.type.replace('_', ' ')} SUCCESSFUL
               </div>
               
-              <div className="bg-slate-50 p-8 rounded-[35px] border border-slate-100 shadow-inner">
-                <p className="text-2xl font-bold text-slate-800 leading-snug">
+              <div className="bg-slate-50 p-10 rounded-[45px] border border-slate-100 shadow-inner">
+                <p className="text-3xl font-black text-slate-800 leading-tight">
                   {successOverlay.message}
                 </p>
               </div>
               
               <button 
                 onClick={() => setSuccessOverlay(null)}
-                className="mt-10 bg-slate-100 hover:bg-slate-200 px-8 py-3 rounded-2xl text-slate-500 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
+                className="mt-12 bg-slate-100 hover:bg-slate-200 px-10 py-4 rounded-3xl text-slate-400 text-xs font-black uppercase tracking-widest transition-all active:scale-95"
               >
-                CLOSE
+                DISMISS
               </button>
            </div>
         </div>
@@ -241,7 +240,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2 mt-1.5">
               <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {webhookUrl ? 'Cloud Connected' : 'Local Only'}
+                {webhookUrl ? 'Sheet Linked' : 'Offline Mode'}
               </p>
             </div>
           </div>
@@ -286,7 +285,7 @@ const App: React.FC = () => {
 
                 <div className="mb-8 h-16 flex flex-col justify-center">
                   <h2 className={`text-xl font-black ${clockMode === 'SIGN_IN' ? 'text-emerald-600' : 'text-indigo-900'}`}>
-                    {clockMode === 'SIGN_IN' ? 'Morning Sign-In' : 'Evening Sign-Out'}
+                    {clockMode === 'SIGN_IN' ? 'Clock In Session' : 'Clock Out Session'}
                   </h2>
                 </div>
                 
@@ -294,14 +293,14 @@ const App: React.FC = () => {
                 
                 <div className="mt-10 flex items-center justify-center gap-8 border-t border-slate-50 pt-8">
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">AI Engine</p>
-                    <p className="text-xs font-bold text-slate-600">Gemini 3 Flash</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Gemini Pro</p>
+                    <p className="text-xs font-bold text-slate-600">Vision 1.5</p>
                   </div>
                   <div className="w-px h-8 bg-slate-100"></div>
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Sync</p>
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Cloud Status</p>
                     <p className="text-xs font-bold text-slate-600">
-                      {lastSync ? lastSync.toLocaleTimeString() : 'Pending'}
+                      {lastSync ? `Synced ${lastSync.toLocaleTimeString()}` : 'Not Active'}
                     </p>
                   </div>
                 </div>
@@ -310,13 +309,13 @@ const App: React.FC = () => {
             
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl h-full">
-                <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Recent Logs</h3>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Daily Activity</h3>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {history.length > 0 ? (
                     history.map(record => <AttendanceCard key={record.id} record={record} />)
                   ) : (
                     <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-300">
-                      <p className="font-bold text-sm">No scans detected yet.</p>
+                      <p className="font-bold text-sm">No activity recorded today.</p>
                     </div>
                   )}
                 </div>
@@ -331,7 +330,7 @@ const App: React.FC = () => {
               <StaffRegistration onRegister={handleRegister} />
             </div>
             <div className="lg:col-span-7 bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
-              <h3 className="text-2xl font-black text-slate-900 mb-8">Registered Team</h3>
+              <h3 className="text-2xl font-black text-slate-900 mb-8">Staff Directory</h3>
               <div className="grid sm:grid-cols-2 gap-4">
                 {staffList.length > 0 ? staffList.map(staff => (
                   <div key={staff.id} className="bg-slate-50 p-5 rounded-3xl border border-transparent hover:border-indigo-200 transition-all flex items-center gap-4">
@@ -343,7 +342,7 @@ const App: React.FC = () => {
                   </div>
                 )) : (
                    <div className="col-span-2 text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
-                     <p className="font-bold">Team database is empty</p>
+                     <p className="font-bold">No staff members found.</p>
                    </div>
                 )}
               </div>
