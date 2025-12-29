@@ -14,45 +14,66 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [flicker, setFlicker] = useState<'SIGN_IN' | 'SIGN_OUT' | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Persistence: Load data on mount
   useEffect(() => {
     const savedStaff = localStorage.getItem('facetrack-v1-staff');
-    if (savedStaff) {
-      try {
-        setStaffList(JSON.parse(savedStaff));
-      } catch (e) {
-        console.error("Error loading staff", e);
-      }
-    }
+    if (savedStaff) setStaffList(JSON.parse(savedStaff));
 
     const savedHistory = localStorage.getItem('facetrack-v1-history');
-    if (savedHistory) {
-      try {
-        setHistory(JSON.parse(savedHistory));
-      } catch (e) {
-        console.error("Error loading history", e);
-      }
-    }
+    if (savedHistory) setHistory(JSON.parse(savedHistory));
 
     const savedUrl = localStorage.getItem('facetrack-v1-webhook');
     if (savedUrl) setWebhookUrl(savedUrl);
   }, []);
 
-  // Persistence: Save data on change
-  useEffect(() => {
-    localStorage.setItem('facetrack-v1-staff', JSON.stringify(staffList));
-  }, [staffList]);
+  // REAL-TIME SYNC LOGIC
+  const fetchFromCloud = useCallback(async () => {
+    if (!webhookUrl || isSyncing) return;
+    
+    setIsSyncing(true);
+    try {
+      const cloudData = await geminiService.fetchCloudData(webhookUrl);
+      if (cloudData) {
+        if (cloudData.history) {
+          setHistory(prev => {
+            const existingIds = new Set(prev.map(r => r.id));
+            const newRecords = cloudData.history.filter((r: any) => !existingIds.has(r.id));
+            return [...newRecords, ...prev].sort((a, b) => new Date(b.date + ' ' + b.timestamp).getTime() - new Date(a.date + ' ' + a.timestamp).getTime());
+          });
+        }
+        if (cloudData.staff) {
+          setStaffList(prev => {
+            const existingIds = new Set(prev.map(s => s.id));
+            const newStaff = cloudData.staff.filter((s: any) => !existingIds.has(s.id));
+            return [...prev, ...newStaff];
+          });
+        }
+        setLastSync(new Date());
+      }
+    } catch (err) {
+      console.warn("Real-time sync paused: Check Webhook settings.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [webhookUrl, isSyncing]);
 
   useEffect(() => {
-    localStorage.setItem('facetrack-v1-history', JSON.stringify(history));
-  }, [history]);
-
-  useEffect(() => {
-    localStorage.setItem('facetrack-v1-webhook', webhookUrl);
+    if (webhookUrl) {
+      fetchFromCloud();
+      const interval = setInterval(fetchFromCloud, 30000);
+      return () => clearInterval(interval);
+    }
   }, [webhookUrl]);
+
+  useEffect(() => localStorage.setItem('facetrack-v1-staff', JSON.stringify(staffList)), [staffList]);
+  useEffect(() => localStorage.setItem('facetrack-v1-history', JSON.stringify(history)), [history]);
+  useEffect(() => localStorage.setItem('facetrack-v1-webhook', webhookUrl), [webhookUrl]);
 
   useEffect(() => {
     if (toast) {
@@ -61,14 +82,43 @@ const App: React.FC = () => {
     }
   }, [toast]);
 
-  const handleRegister = (newStaff: StaffMember) => {
-    // Check if ID already exists
+  const triggerFlicker = (type: 'SIGN_IN' | 'SIGN_OUT') => {
+    setFlicker(type);
+    setTimeout(() => setFlicker(null), 300); // 300ms flicker
+  };
+
+  const playGreeting = async (name: string, type: 'SIGN_IN' | 'SIGN_OUT') => {
+    const text = type === 'SIGN_IN' 
+      ? `Hi ${name}, Glad you’re here! your presence makes a difference.` 
+      : `Hi ${name}, Thank you for giving your best today.`;
+
+    const audioData = await geminiService.generateSpeech(text);
+    if (audioData) {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      const ctx = audioContextRef.current;
+      const audioBuffer = await geminiService.decodeAudioData(audioData, ctx, 24000, 1);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.start();
+    }
+  };
+
+  const handleRegister = async (newStaff: StaffMember) => {
     if (staffList.some(s => s.id === newStaff.id)) {
       setToast({ message: `Staff ID ${newStaff.id} already exists!`, type: 'error' });
       return;
     }
     setStaffList(prev => [...prev, newStaff]);
-    setToast({ message: `${newStaff.name} (ID: ${newStaff.id}) registered successfully!`, type: 'success' });
+    
+    if (webhookUrl) {
+      await geminiService.syncStaffToCloud(newStaff, webhookUrl);
+      setToast({ message: `${newStaff.name} registered and synced to cloud!`, type: 'success' });
+    } else {
+      setToast({ message: `${newStaff.name} registered locally.`, type: 'success' });
+    }
     setActiveTab('attendance');
   };
 
@@ -79,7 +129,6 @@ const App: React.FC = () => {
     }
 
     setIsProcessing(true);
-    
     if (result.identified && result.staffId && result.staffName) {
       const now = new Date();
       const newRecord: AttendanceRecord = {
@@ -95,197 +144,138 @@ const App: React.FC = () => {
 
       try {
         setHistory(prev => [newRecord, ...prev]);
-        
+        const successMessage = clockMode === 'SIGN_IN' 
+          ? `Glad you’re here, ${result.staffName}! your presence makes a difference.`
+          : `Thank you for giving your best today, ${result.staffName}. Safe journey home.`;
+
+        // Trigger visual and audio feedback
+        triggerFlicker(clockMode);
+        playGreeting(result.staffName, clockMode);
+
         if (webhookUrl) {
            await geminiService.syncToGoogleSheets(newRecord, webhookUrl);
-           setToast({ 
-             message: `Success! ${result.staffName} ${clockMode === 'SIGN_IN' ? 'signed in' : 'signed out'}. Synced to Sheet.`, 
-             type: 'success' 
-           });
+           setToast({ message: successMessage, type: 'success' });
+           fetchFromCloud();
         } else {
-           setToast({ 
-             message: `Success! ${result.staffName} ${clockMode === 'SIGN_IN' ? 'signed in' : 'signed out'} locally.`, 
-             type: 'info' 
-           });
+           setToast({ message: successMessage, type: 'info' });
         }
       } catch (err) {
-        setToast({ message: "Attendance saved locally, but cloud sync failed.", type: 'error' });
+        setToast({ message: "Cloud sync failed, log saved locally.", type: 'error' });
       }
     } else {
-      setToast({ message: result.message || "Identity could not be verified.", type: 'error' });
+      setToast({ message: result.message || "Identity not verified.", type: 'error' });
     }
-    
     setIsProcessing(false);
-  }, [staffList, webhookUrl, clockMode]);
-
-  const deleteStaff = (id: string) => {
-    if (window.confirm("Are you sure you want to remove this staff member? This will stop recognition for them.")) {
-      setStaffList(prev => prev.filter(s => s.id !== id));
-      setToast({ message: "Staff member removed.", type: 'info' });
-    }
-  };
-
-  const exportStaffData = () => {
-    const dataStr = JSON.stringify(staffList);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const exportFileDefaultName = `staff_backup_${new Date().toISOString().split('T')[0]}.json`;
-
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
-    setToast({ message: "Staff database backup downloaded!", type: 'success' });
-  };
-
-  const importStaffData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target?.result as string);
-        if (Array.isArray(imported)) {
-          if (window.confirm(`Merge ${imported.length} staff members with existing list?`)) {
-            // Filter out duplicates by ID
-            setStaffList(prev => {
-              const existingIds = new Set(prev.map(s => s.id));
-              const newItems = imported.filter(s => !existingIds.has(s.id));
-              return [...prev, ...newItems];
-            });
-            setToast({ message: "Staff data imported and merged!", type: 'success' });
-          }
-        }
-      } catch (err) {
-        setToast({ message: "Invalid backup file.", type: 'error' });
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const downloadCSV = () => {
-    if (history.length === 0) {
-      setToast({ message: "No data to export.", type: 'error' });
-      return;
-    }
-
-    const headers = ["Name", "Staff ID", "Date", "Timestamp", "Type", "Status"];
-    const rows = history.map(r => [
-      r.staffName,
-      `"${r.staffId}"`, // Wrap in quotes to preserve formatting in Excel
-      r.date,
-      r.timestamp,
-      r.type,
-      r.status
-    ]);
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(e => e.join(","))
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `attendance_export_${new Date().toISOString().split('T')[0]}.csv`);
-    link.click();
-    setToast({ message: "Attendance report downloaded!", type: 'success' });
-  };
+  }, [staffList, webhookUrl, clockMode, fetchFromCloud]);
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-12">
+    <div className="min-h-screen bg-slate-50 pb-12 font-sans relative">
+      {/* Visual Flicker Overlay */}
+      {flicker && (
+        <div 
+          className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-150 ${flicker === 'SIGN_IN' ? 'bg-emerald-500/40' : 'bg-blue-600/40'}`}
+        />
+      )}
+
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100">
+            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 leading-none tracking-tight">FaceTrack Pro</h1>
-            <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mt-1">Smart Attendance System</p>
+            <h1 className="text-xl font-black text-slate-900 leading-none">FaceTrack Pro</h1>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                {webhookUrl ? 'Cloud Connected • Live Tracking' : 'Local Mode • No Cloud'}
+              </p>
+            </div>
           </div>
         </div>
 
-        <nav className="flex bg-slate-100 p-1 rounded-xl">
-          <button 
-            onClick={() => setActiveTab('attendance')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'attendance' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Clock
-          </button>
-          <button 
-            onClick={() => setActiveTab('registration')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'registration' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Directory
-          </button>
-          <button 
-            onClick={() => setActiveTab('settings')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'settings' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Settings
-          </button>
+        <nav className="flex bg-slate-100 p-1.5 rounded-2xl">
+          {[
+            { id: 'attendance', label: 'Scanner' },
+            { id: 'registration', label: 'Staff' },
+            { id: 'settings', label: 'Cloud' }
+          ].map(tab => (
+            <button 
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white shadow-md text-indigo-600' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 mt-8">
+      <main className="max-w-7xl mx-auto px-6 mt-8">
         {activeTab === 'attendance' && (
-          <div className="grid lg:grid-cols-12 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="lg:col-span-7 space-y-6">
-              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm text-center">
-                <div className="mb-8 inline-flex bg-slate-100 p-1 rounded-2xl">
+          <div className="grid lg:grid-cols-12 gap-10 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="lg:col-span-7">
+              <div className="bg-white p-10 rounded-[40px] border border-slate-200 shadow-xl shadow-slate-200/50 text-center relative overflow-hidden">
+                <div className="mb-10 inline-flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
                   <button 
                     onClick={() => setClockMode('SIGN_IN')}
-                    className={`px-8 py-3 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${clockMode === 'SIGN_IN' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-200'}`}
+                    className={`px-10 py-4 rounded-xl text-sm font-black transition-all flex items-center gap-3 ${clockMode === 'SIGN_IN' ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-200 scale-105' : 'text-slate-500'}`}
                   >
                     SIGN IN
                   </button>
                   <button 
                     onClick={() => setClockMode('SIGN_OUT')}
-                    className={`px-8 py-3 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${clockMode === 'SIGN_OUT' ? 'bg-rose-500 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-200'}`}
+                    className={`px-10 py-4 rounded-xl text-sm font-black transition-all flex items-center gap-3 ${clockMode === 'SIGN_OUT' ? 'bg-blue-600 text-white shadow-xl shadow-blue-200 scale-105' : 'text-slate-500'}`}
                   >
                     SIGN OUT
                   </button>
                 </div>
 
-                <h2 className="text-3xl font-extrabold text-slate-900">
-                  {clockMode === 'SIGN_IN' ? 'Welcome Back!' : 'Signing Out?'}
-                </h2>
-                <p className="text-slate-500 mt-2 mb-8">Scan your face clearly to record your time.</p>
+                <div className="mb-8 animate-in fade-in slide-in-from-top-2 duration-500">
+                  <h2 className="text-3xl font-black text-slate-900 tracking-tight mb-2">
+                    {clockMode === 'SIGN_IN' ? 'Welcome!' : 'Good Work Today!'}
+                  </h2>
+                  <p className="text-slate-500 max-w-md mx-auto leading-relaxed">
+                    {clockMode === 'SIGN_IN' 
+                      ? 'Glad you’re here! your presence makes a difference.' 
+                      : 'Thank you for giving your best today. Safe journey home.'}
+                  </p>
+                </div>
                 
                 <CameraScanner onResult={handleRecognition} isProcessing={isProcessing} staffList={staffList} />
                 
-                <div className="mt-8 flex items-center justify-center gap-6 text-sm text-slate-400">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    AI Recognition Ready
+                <div className="mt-10 flex items-center justify-center gap-8">
+                  <div className="text-left">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">System Status</p>
+                    <p className="text-xs font-bold text-slate-600 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span> AI Active
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${webhookUrl ? 'bg-indigo-500' : 'bg-amber-400'}`}></span>
-                    {webhookUrl ? 'Syncing to Sheets' : 'Saving Locally'}
+                  <div className="w-px h-8 bg-slate-100"></div>
+                  <div className="text-left">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Last Cloud Update</p>
+                    <p className="text-xs font-bold text-slate-600">
+                      {lastSync ? lastSync.toLocaleTimeString() : 'Waiting for sync...'}
+                    </p>
                   </div>
                 </div>
               </div>
             </div>
             
             <div className="lg:col-span-5 space-y-6">
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-slate-800">Live Logs</h3>
-                  <div className="flex gap-2">
-                    <button onClick={downloadCSV} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold">
-                      EXPORT CSV
-                    </button>
-                  </div>
+              <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl shadow-slate-200/50">
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Activity Logs</h3>
+                  <button onClick={fetchFromCloud} className={`p-2 rounded-full transition-all ${isSyncing ? 'animate-spin bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}>
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
                 </div>
-                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {history.length > 0 ? (
                     history.map(record => <AttendanceCard key={record.id} record={record} />)
                   ) : (
-                    <div className="text-center py-20 border-2 border-dashed border-slate-100 rounded-2xl text-slate-400 text-sm">
-                      No logs for this session.
+                    <div className="text-center py-24 border-2 border-dashed border-slate-100 rounded-[30px] text-slate-400">
+                      <p className="font-bold">No Records Yet</p>
+                      <p className="text-[10px] uppercase mt-1 tracking-widest">Awaiting first scan</p>
                     </div>
                   )}
                 </div>
@@ -299,110 +289,73 @@ const App: React.FC = () => {
             <div className="lg:col-span-5">
               <StaffRegistration onRegister={handleRegister} />
             </div>
-            <div className="lg:col-span-7 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col">
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">Staff List</h3>
-                  <p className="text-xs text-slate-400 font-medium">Total: {staffList.length}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={exportStaffData}
-                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    BACKUP
-                  </button>
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-all flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                    RESTORE
-                  </button>
-                  <input type="file" ref={fileInputRef} onChange={importStaffData} className="hidden" accept=".json" />
-                </div>
-              </div>
-              
-              <div className="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar flex-grow">
+            <div className="lg:col-span-7 bg-white p-8 rounded-[40px] border border-slate-200 shadow-xl">
+              <h3 className="text-2xl font-black text-slate-900 mb-8">Staff Directory</h3>
+              <div className="grid sm:grid-cols-2 gap-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                 {staffList.length > 0 ? staffList.map(staff => (
-                  <div key={staff.id} className="group flex items-center justify-between p-4 rounded-2xl border border-slate-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-all">
+                  <div key={staff.id} className="group relative bg-slate-50 p-5 rounded-3xl border border-transparent hover:border-indigo-200 hover:bg-white transition-all hover:shadow-lg">
                     <div className="flex items-center gap-4">
-                      <img src={staff.avatarUrl} alt={staff.name} className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-sm" />
-                      <div>
-                        <h4 className="font-bold text-slate-800">{staff.name}</h4>
-                        <p className="text-xs text-slate-500">{staff.role}</p>
-                        <p className="text-[10px] font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded inline-block mt-1">ID: {staff.id}</p>
+                      <img src={staff.avatarUrl} className="w-16 h-16 rounded-2xl object-cover shadow-sm border-2 border-white" alt={staff.name} />
+                      <div className="flex-grow">
+                        <h4 className="font-black text-slate-900 leading-tight">{staff.name}</h4>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{staff.role}</p>
+                        <p className="text-[10px] font-mono text-indigo-500 mt-1"># {staff.id}</p>
                       </div>
                     </div>
                     <button 
-                      onClick={() => deleteStaff(staff.id)} 
-                      className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-xl transition-all shadow-sm"
-                      title="Delete Staff"
+                      onClick={() => { if(window.confirm(`Remove ${staff.name}?`)) setStaffList(prev => prev.filter(s => s.id !== staff.id)); }}
+                      className="absolute top-4 right-4 p-2 bg-white text-slate-300 hover:text-rose-500 rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-all"
                     >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
                 )) : (
-                  <div className="text-center py-20 text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
-                    <p>No staff registered.</p>
-                    <p className="text-xs mt-1">Use the form on the left to add your team.</p>
-                  </div>
+                  <div className="col-span-full py-24 text-center text-slate-300 font-bold uppercase tracking-widest text-sm">Empty Directory</div>
                 )}
               </div>
-
-              {staffList.length > 0 && (
-                <div className="mt-6 pt-6 border-t border-slate-100">
-                  <button 
-                    onClick={() => { if(window.confirm("ERASE ALL STAFF? This cannot be undone!")) setStaffList([]); }}
-                    className="text-rose-500 text-xs font-bold hover:underline"
-                  >
-                    Delete All Staff Data
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         )}
 
         {activeTab === 'settings' && (
-          <div className="space-y-8 animate-in fade-in duration-500 max-w-3xl mx-auto">
+          <div className="max-w-3xl mx-auto space-y-8 animate-in zoom-in-95 duration-500">
             <SheetConfig webhookUrl={webhookUrl} onUrlChange={setWebhookUrl} />
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-              <h3 className="text-xl font-bold text-slate-900 mb-4">Manual Export</h3>
-              <p className="text-slate-500 mb-6 italic">Fallback option to export your local attendance logs if the cloud sync is failing.</p>
-              <button 
-                onClick={downloadCSV}
-                className="w-full bg-slate-900 text-white px-8 py-4 rounded-xl font-bold hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                Download Attendance Report (CSV)
-              </button>
+            <div className="bg-white p-10 rounded-[40px] border border-slate-200 shadow-xl">
+              <h3 className="text-2xl font-black text-slate-900 mb-4">Cloud Health</h3>
+              <div className="p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-indigo-900">Real-time Fetching</span>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${webhookUrl ? 'bg-indigo-600 text-white' : 'bg-slate-300 text-slate-600'}`}>
+                    {webhookUrl ? 'Active' : 'Disabled'}
+                  </span>
+                </div>
+                <p className="text-xs text-indigo-700/70 mt-3 leading-relaxed">
+                  When a Webhook URL is set, this app will automatically pull logs from your Google Sheet every 30 seconds. This allows you to track staff movement from any device in the world.
+                </p>
+              </div>
             </div>
           </div>
         )}
       </main>
 
       {toast && (
-        <div className={`fixed bottom-6 right-6 left-6 md:left-auto md:w-96 p-4 rounded-2xl shadow-2xl flex items-center gap-4 z-[60] animate-bounce-in border border-white/10
+        <div className={`fixed bottom-8 right-8 left-8 md:left-auto md:w-[400px] p-5 rounded-3xl shadow-2xl flex items-center gap-4 z-[60] animate-bounce-in border border-white/20 backdrop-blur-md
           ${toast.type === 'success' ? 'bg-slate-900 text-white' : toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-indigo-600 text-white'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${toast.type === 'success' ? 'bg-emerald-500' : 'bg-white/20'}`}>
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={toast.type === 'success' ? "M5 13l4 4L19 7" : "M6 18L18 6M6 6l12 12"} /></svg>
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+             <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={toast.type === 'success' ? "M5 13l4 4L19 7" : "M6 18L18 6M6 6l12 12"} /></svg>
           </div>
-          <p className="text-sm font-bold leading-tight">{toast.message}</p>
+          <p className="text-sm font-black leading-tight">{toast.message}</p>
         </div>
       )}
 
       <style>{`
         @keyframes bounce-in {
           0% { transform: translateY(100px); opacity: 0; }
-          60% { transform: translateY(-5px); opacity: 1; }
+          70% { transform: translateY(-10px); opacity: 1; }
           100% { transform: translateY(0); opacity: 1; }
         }
-        .animate-bounce-in {
-          animation: bounce-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .animate-bounce-in { animation: bounce-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
       `}</style>

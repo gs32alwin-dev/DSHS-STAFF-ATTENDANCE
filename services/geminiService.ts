@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { RecognitionResult, StaffMember, AttendanceRecord } from "../types";
 
 export class GeminiService {
@@ -13,6 +13,7 @@ export class GeminiService {
     try {
       const parts: any[] = [];
 
+      // Add reference images from the staff list
       staffList.forEach((staff) => {
         if (staff.avatarUrl.startsWith('data:image')) {
           const base64Data = staff.avatarUrl.split(',')[1];
@@ -22,22 +23,23 @@ export class GeminiService {
               data: base64Data
             }
           });
-          parts.push({ text: `This person is ${staff.name} (ID: ${staff.id}). Role: ${staff.role}.` });
+          parts.push({ text: `Person: ${staff.name}, ID: ${staff.id}, Role: ${staff.role}` });
         }
       });
 
       parts.push({
         text: `
-          TASK: Identify the person in the FINAL image provided below.
-          Use the preceding images as reference.
-          If the person in the final image matches one of the reference images, identify them.
+          TASK: Match the person in the FINAL image with one of the reference people provided above.
+          Only identify if you are very confident (85%+).
           
-          Return a JSON object with:
-          - identified: boolean
-          - staffId: string (if identified)
-          - staffName: string (if identified)
-          - confidence: number (0 to 1)
-          - message: a short explanation.
+          Return JSON:
+          {
+            "identified": boolean,
+            "staffId": "string",
+            "staffName": "string",
+            "confidence": number,
+            "message": "string"
+          }
         `
       });
 
@@ -67,37 +69,126 @@ export class GeminiService {
         }
       });
 
-      const result = JSON.parse(response.text || '{}');
-      return result as RecognitionResult;
+      return JSON.parse(response.text || '{}') as RecognitionResult;
     } catch (error) {
-      console.error("Gemini Recognition Error:", error);
+      console.error("Gemini Error:", error);
       throw error;
     }
   }
 
-  async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
-    if (!webhookUrl) {
-      console.warn("No Webhook URL provided. Skipping remote sync.");
-      return { success: false, message: "No Webhook URL configured" };
-    }
-
+  async generateSpeech(text: string): Promise<Uint8Array | null> {
     try {
-      // Use no-cors mode if the Apps Script isn't configured for CORS, 
-      // but standard POST is better for receiving data.
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        mode: 'no-cors', // Standard for simple Google Apps Script deployments
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
+          },
         },
-        body: JSON.stringify(record),
       });
 
-      console.log("Sync request sent to:", webhookUrl);
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (base64Audio) {
+        return this.decodeBase64(base64Audio);
+      }
+      return null;
+    } catch (error) {
+      console.error("TTS Error:", error);
+      return null;
+    }
+  }
+
+  private decodeBase64(base64: string): Uint8Array {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  async decodeAudioData(
+    data: Uint8Array,
+    ctx: AudioContext,
+    sampleRate: number = 24000,
+    numChannels: number = 1,
+  ): Promise<AudioBuffer> {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) {
+        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+      }
+    }
+    return buffer;
+  }
+
+  async testConnection(url: string): Promise<{ success: boolean; message: string }> {
+    if (!url) return { success: false, message: "URL is empty" };
+    try {
+      const response = await fetch(`${url}?action=test`, { method: 'GET', mode: 'cors' });
+      if (response.ok) return { success: true, message: "Connected successfully!" };
+      return { success: false, message: `Server returned status ${response.status}` };
+    } catch (err) {
+      return { success: false, message: "Failed to fetch. Ensure 'Who has access' is set to 'Anyone'." };
+    }
+  }
+
+  async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
+    if (!webhookUrl) return { success: false };
+    try {
+      // Use no-cors for POST because Google doesn't handle OPTIONS preflight well
+      await fetch(webhookUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_record', data: record }),
+      });
       return { success: true };
     } catch (error) {
-      console.error("Failed to sync to Google Sheets:", error);
+      console.error("Sync Error:", error);
       throw error;
+    }
+  }
+
+  async fetchCloudData(webhookUrl: string) {
+    if (!webhookUrl || !webhookUrl.startsWith('http')) return null;
+    try {
+      const response = await fetch(`${webhookUrl}?action=get_data`, {
+        method: 'GET',
+        mode: 'cors'
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      // Don't log spammy errors to console unless it's a real issue
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+         // This is likely a CORS error due to incorrect "Anyone" setting
+         throw new Error("Cloud connectivity blocked. Check Apps Script 'Anyone' access setting.");
+      }
+      throw error;
+    }
+  }
+
+  async syncStaffToCloud(staff: StaffMember, webhookUrl: string) {
+    if (!webhookUrl) return;
+    try {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_staff', data: staff }),
+      });
+    } catch (error) {
+      console.error("Staff Cloud Sync Error:", error);
     }
   }
 }
