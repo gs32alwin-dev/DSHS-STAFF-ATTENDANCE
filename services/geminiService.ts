@@ -1,14 +1,16 @@
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { RecognitionResult, StaffMember, AttendanceRecord } from "../types";
 
 export class GeminiService {
+  private avatarCache: Map<string, string> = new Map();
+
   /**
-   * Resizes a base64 image to reduce payload size and prevent 500/Rpc errors.
+   * Resizes a base64 image to reduce payload size for faster API transmission.
    */
-  private async resizeImage(base64Str: string, maxWidth: number = 400): Promise<string> {
+  private async resizeImage(base64Str: string, maxWidth: number = 320): Promise<string> {
     return new Promise((resolve) => {
       const img = new Image();
-      // Ensure base64 string is correctly formatted for Image src
       const src = base64Str.startsWith('data:') ? base64Str : `data:image/jpeg;base64,${base64Str}`;
       img.src = src;
       img.onload = () => {
@@ -18,15 +20,15 @@ export class GeminiService {
         canvas.height = img.height * scale;
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'medium';
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // Return only the base64 part
-          resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
+          resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
         } else {
           resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
         }
       };
       img.onerror = () => {
-        // Fallback to original if resize fails, but strip header
         resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
       };
     });
@@ -34,55 +36,48 @@ export class GeminiService {
 
   async identifyStaff(probeImageBase64: string, staffList: StaffMember[]): Promise<RecognitionResult> {
     if (!process.env.API_KEY) {
-      throw new Error("API Key is missing. Please ensure your environment is configured.");
+      throw new Error("API Key is missing.");
     }
 
     try {
-      // Step 1: Optimize the probe image
-      const optimizedProbe = await this.resizeImage(probeImageBase64, 480);
-      
+      const probePromise = this.resizeImage(probeImageBase64, 400);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const parts: any[] = [];
 
-      // Step 2: Prepare reference database (max 4 for stability and token limits)
       const validStaff = staffList
-        .filter(s => s.avatarUrl && s.avatarUrl.includes('base64,'))
-        .slice(0, 4);
+        .filter(s => s.avatarUrl && (s.avatarUrl.includes('base64,') || s.avatarUrl.startsWith('http')))
+        .slice(0, 10); // Increased slightly for better coverage
 
       if (validStaff.length === 0) {
-        return {
-          identified: false,
-          confidence: 0,
-          message: "No staff registered with photos found in the database."
-        };
+        return { identified: false, confidence: 0, message: "No registered staff found." };
       }
 
-      // Vision tasks perform significantly more reliably with Flash models to avoid 500/Internal errors
-      const modelName = 'gemini-3-flash-preview';
+      parts.push({ text: "Task: Identify person in PROBE by matching against REFERENCE_DATABASE. High security biometric mode." });
 
-      parts.push({ text: "SYSTEM: Biometric Recognition Mode. Compare the reference photos below to the probe image to identify the staff member." });
-
-      // Step 3: Add optimized reference images
-      for (const staff of validStaff) {
-        const optimizedRef = await this.resizeImage(staff.avatarUrl, 320);
-        parts.push({
-          inlineData: { mimeType: 'image/jpeg', data: optimizedRef }
-        });
-        parts.push({ text: `REFERENCE_DATABASE: StaffID=${staff.id}, StaffName=${staff.name}` });
-      }
-
-      parts.push({
-        text: `PROBE: Identify the person in this image by comparing to the database above. 
-               Only provide a match if you are extremely confident (>0.9).
-               JSON OUTPUT FORMAT: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
+      const staffPartsPromises = validStaff.map(async (staff) => {
+        let optimizedRef = this.avatarCache.get(staff.id);
+        if (!optimizedRef) {
+          optimizedRef = await this.resizeImage(staff.avatarUrl, 256);
+          this.avatarCache.set(staff.id, optimizedRef);
+        }
+        return [
+          { inlineData: { mimeType: 'image/jpeg', data: optimizedRef } },
+          { text: `REF_DATA: ID=${staff.id}, NAME=${staff.name}` }
+        ];
       });
 
+      const staffParts = (await Promise.all(staffPartsPromises)).flat();
+      parts.push(...staffParts);
+
+      const optimizedProbe = await probePromise;
       parts.push({
-        inlineData: { mimeType: 'image/jpeg', data: optimizedProbe }
+        text: `PROBE_IMAGE: Identify this person. Output strictly JSON.
+               JSON Structure: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
       });
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedProbe } });
 
       const response = await ai.models.generateContent({
-        model: modelName,
+        model: 'gemini-3-flash-preview',
         contents: { parts },
         config: {
           responseMimeType: "application/json",
@@ -100,75 +95,24 @@ export class GeminiService {
         }
       });
 
-      const text = response.text;
-      if (!text) throw new Error("The AI service returned an empty result.");
-      return JSON.parse(text) as RecognitionResult;
+      return JSON.parse(response.text || '{}') as RecognitionResult;
     } catch (error: any) {
       console.error("Gemini Error:", error);
-      if (error.message?.includes("500") || error.message?.includes("Rpc failed") || error.message?.includes("Internal Error")) {
-        throw new Error("Service busy or payload too large. Try capturing with better lighting or reducing the number of registered staff.");
-      }
-      throw error;
+      throw new Error("Biometric scan failed. Please try again.");
     }
-  }
-
-  async generateSpeech(text: string): Promise<Uint8Array | null> {
-    if (!process.env.API_KEY) return null;
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
-            },
-          },
-        },
-      });
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) return this.decodeBase64(base64Audio);
-      return null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  private decodeBase64(base64: string): Uint8Array {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes;
-  }
-
-  async decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number = 24000, numChannels: number = 1): Promise<AudioBuffer> {
-    const dataInt16 = new Int16Array(data.buffer);
-    const frameCount = dataInt16.length / numChannels;
-    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-    for (let channel = 0; channel < numChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      for (let i = 0; i < frameCount; i++) {
-        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-      }
-    }
-    return buffer;
   }
 
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
     if (!url || !url.startsWith('https://script.google.com')) {
-      return { success: false, message: "URL must be a valid Google Apps Script endpoint." };
+      return { success: false, message: "Invalid Script URL." };
     }
     try {
       const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=test&t=${Date.now()}`, { 
-        method: 'GET', mode: 'cors', cache: 'no-store'
+        method: 'GET', mode: 'cors'
       });
-      return response.ok ? { success: true, message: "Connection successful!" } : { success: false, message: `Server error: ${response.status}` };
+      return response.ok ? { success: true, message: "Connected!" } : { success: false, message: "Server error." };
     } catch (err) {
-      return { success: false, message: "Network error. Please check your internet and Apps Script settings." };
+      return { success: false, message: "Network error." };
     }
   }
 
@@ -182,7 +126,7 @@ export class GeminiService {
       });
       return { success: true };
     } catch (error) {
-      throw error;
+      return { success: false };
     }
   }
 
@@ -196,7 +140,7 @@ export class GeminiService {
       });
       return { success: true };
     } catch (error) {
-      throw error;
+      return { success: false };
     }
   }
 
@@ -204,7 +148,7 @@ export class GeminiService {
     if (!webhookUrl || !webhookUrl.startsWith('https://script.google.com')) return null;
     try {
       const response = await fetch(`${webhookUrl}${webhookUrl.includes('?') ? '&' : '?'}action=get_data&t=${Date.now()}`, {
-        method: 'GET', mode: 'cors', cache: 'no-store'
+        method: 'GET', mode: 'cors'
       });
       if (response.ok) return await response.json();
       return null;

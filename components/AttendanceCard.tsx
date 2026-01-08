@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { AttendanceRecord } from '../types';
 
@@ -9,21 +10,19 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({ record }) => {
   const isSignIn = record.type === 'SIGN_IN';
   
   return (
-    <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between transition-all hover:shadow-md">
-      <div className="flex items-center gap-4">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${isSignIn ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-100 text-indigo-900'}`}>
+    <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex items-center justify-between transition-all hover:border-indigo-200 hover:bg-white hover:shadow-lg group">
+      <div className="flex items-center gap-5">
+        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg shadow-md transition-transform group-hover:scale-110 ${isSignIn ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-700'}`}>
           {record.staffName.charAt(0)}
         </div>
         <div>
-          <h4 className="font-semibold text-slate-800">{record.staffName}</h4>
-          <p className="text-[10px] text-slate-400 font-mono">ID: {record.staffId}</p>
-          <p className="text-[10px] text-slate-500">{record.date} • {record.method}</p>
+          <h4 className="text-sm font-black text-slate-900 leading-tight mb-1">{record.staffName}</h4>
+          <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{record.timestamp} • {record.staffId}</p>
         </div>
       </div>
-      <div className="text-right">
-        <span className="text-sm font-medium text-slate-900 block">{record.timestamp}</span>
-        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isSignIn ? 'bg-emerald-500 text-white' : 'bg-indigo-900 text-white'}`}>
-          {record.type.replace('_', ' ')}
+      <div className="flex items-center">
+        <span className={`text-[9px] px-3 py-1.5 rounded-xl font-black uppercase tracking-[2px] shadow-sm ${isSignIn ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white'}`}>
+          {isSignIn ? 'IN' : 'OUT'}
         </span>
       </div>
     </div>
