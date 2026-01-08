@@ -10,27 +10,29 @@ export class GeminiService {
    */
   private async resizeImage(base64Str: string, maxWidth: number = 320): Promise<string> {
     return new Promise((resolve) => {
-      const img = new Image();
-      const src = base64Str.startsWith('data:') ? base64Str : `data:image/jpeg;base64,${base64Str}`;
-      img.src = src;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(1, maxWidth / img.width);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'medium';
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
-        } else {
-          resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
-        }
-      };
-      img.onerror = () => {
+      try {
+        const img = new Image();
+        const src = base64Str.startsWith('data:') ? base64Str : `data:image/jpeg;base64,${base64Str}`;
+        img.src = src;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, maxWidth / img.width);
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'medium';
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
+          } else {
+            resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+          }
+        };
+        img.onerror = () => resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
+      } catch (e) {
         resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
-      };
+      }
     });
   }
 
@@ -46,7 +48,7 @@ export class GeminiService {
 
       const validStaff = staffList
         .filter(s => s.avatarUrl && (s.avatarUrl.includes('base64,') || s.avatarUrl.startsWith('http')))
-        .slice(0, 10); // Increased slightly for better coverage
+        .slice(0, 10); 
 
       if (validStaff.length === 0) {
         return { identified: false, confidence: 0, message: "No registered staff found." };
@@ -95,29 +97,46 @@ export class GeminiService {
         }
       });
 
-      return JSON.parse(response.text || '{}') as RecognitionResult;
+      const text = response.text;
+      if (!text) throw new Error("Empty response from AI");
+      return JSON.parse(text) as RecognitionResult;
     } catch (error: any) {
       console.error("Gemini Error:", error);
-      throw new Error("Biometric scan failed. Please try again.");
+      throw new Error("Biometric scan failed. Check lighting and try again.");
     }
   }
 
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
-    if (!url || !url.startsWith('https://script.google.com')) {
-      return { success: false, message: "Invalid Script URL." };
+    if (!url || !url.startsWith('https://script.google.com') || !url.includes('/exec')) {
+      return { success: false, message: "Invalid Script URL. Ensure it ends with /exec." };
     }
+    if (url.includes('docs.google.com/forms')) {
+      return { success: false, message: "This is a Google Form URL. You must use the Apps Script 'Web App' URL." };
+    }
+    
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
       const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=test&t=${Date.now()}`, { 
-        method: 'GET', mode: 'cors'
+        method: 'GET',
+        signal: controller.signal
       });
-      return response.ok ? { success: true, message: "Connected!" } : { success: false, message: "Server error." };
-    } catch (err) {
-      return { success: false, message: "Network error." };
+      clearTimeout(timeoutId);
+
+      if (!response.ok) return { success: false, message: `Server error ${response.status}` };
+      const text = await response.text();
+      return text.trim() === "OK" 
+        ? { success: true, message: "Connected successfully!" } 
+        : { success: false, message: "Invalid script response. Check Deployment settings." };
+    } catch (err: any) {
+      if (err.name === 'AbortError') return { success: false, message: "Connection timeout." };
+      return { success: false, message: "Connection failed. Check your internet." };
     }
   }
 
   async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
-    if (!webhookUrl || !webhookUrl.startsWith('http')) return { success: false };
+    if (!webhookUrl || !webhookUrl.startsWith('http') || !webhookUrl.includes('/exec')) return { success: false };
     try {
       await fetch(webhookUrl, {
         method: 'POST', mode: 'no-cors', 
@@ -131,7 +150,7 @@ export class GeminiService {
   }
 
   async syncStaffToCloud(staff: StaffMember, webhookUrl: string | null) {
-    if (!webhookUrl || !webhookUrl.startsWith('http')) return { success: false };
+    if (!webhookUrl || !webhookUrl.startsWith('http') || !webhookUrl.includes('/exec')) return { success: false };
     try {
       await fetch(webhookUrl, {
         method: 'POST', mode: 'no-cors', 
@@ -145,12 +164,37 @@ export class GeminiService {
   }
 
   async fetchCloudData(webhookUrl: string) {
-    if (!webhookUrl || !webhookUrl.startsWith('https://script.google.com')) return null;
+    if (!webhookUrl || !webhookUrl.startsWith('https://script.google.com') || !webhookUrl.includes('/exec')) return null;
+    
     try {
       const response = await fetch(`${webhookUrl}${webhookUrl.includes('?') ? '&' : '?'}action=get_data&t=${Date.now()}`, {
-        method: 'GET', mode: 'cors'
+        method: 'GET'
       });
-      if (response.ok) return await response.json();
+      
+      const contentType = response.headers.get('content-type');
+      // Google Scripts always return application/json if ContentService is used correctly.
+      // If it's HTML, it's definitely an error page or a Form.
+      if (!contentType || !contentType.includes('application/json')) {
+        return null;
+      }
+
+      if (response.ok) {
+        const text = await response.text();
+        if (!text || text.length < 2) return null;
+        
+        try {
+          const data = JSON.parse(text);
+          if (data && typeof data === 'object') {
+            return {
+              history: Array.isArray(data.history) ? data.history : [],
+              staff: Array.isArray(data.staff) ? data.staff : []
+            };
+          }
+        } catch (e) {
+          console.error("JSON Parse Error in Cloud Data", e);
+          return null;
+        }
+      }
       return null;
     } catch (error) {
       return null;
