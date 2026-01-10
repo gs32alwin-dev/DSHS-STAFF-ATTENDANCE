@@ -8,7 +8,7 @@ export class GeminiService {
   /**
    * Resizes a base64 image to reduce payload size for faster API transmission.
    */
-  private async resizeImage(base64Str: string, maxWidth: number = 320): Promise<string> {
+  private async resizeImage(base64Str: string, maxWidth: number = 512): Promise<string> {
     return new Promise((resolve) => {
       try {
         const img = new Image();
@@ -22,9 +22,9 @@ export class GeminiService {
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'medium';
+            ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
+            resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
           } else {
             resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
           }
@@ -42,29 +42,30 @@ export class GeminiService {
     }
 
     try {
-      const probePromise = this.resizeImage(probeImageBase64, 400);
+      const probePromise = this.resizeImage(probeImageBase64, 512);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const parts: any[] = [];
 
+      // Limit reference database to top 15 most likely matches to keep prompt small and fast
       const validStaff = staffList
         .filter(s => s.avatarUrl && (s.avatarUrl.includes('base64,') || s.avatarUrl.startsWith('http')))
-        .slice(0, 10); 
+        .slice(0, 15); 
 
       if (validStaff.length === 0) {
-        return { identified: false, confidence: 0, message: "No registered staff found." };
+        return { identified: false, confidence: 0, message: "Authorized database empty." };
       }
 
-      parts.push({ text: "Task: Identify person in PROBE by matching against REFERENCE_DATABASE. High security biometric mode." });
+      parts.push({ text: "Biometric Protocol: Cross-reference PROBE_IMAGE against the provided REFERENCE_DATABASE. Identify the individual if confidence > 0.85. Be extremely precise." });
 
       const staffPartsPromises = validStaff.map(async (staff) => {
         let optimizedRef = this.avatarCache.get(staff.id);
         if (!optimizedRef) {
-          optimizedRef = await this.resizeImage(staff.avatarUrl, 256);
+          optimizedRef = await this.resizeImage(staff.avatarUrl, 320);
           this.avatarCache.set(staff.id, optimizedRef);
         }
         return [
           { inlineData: { mimeType: 'image/jpeg', data: optimizedRef } },
-          { text: `REF_DATA: ID=${staff.id}, NAME=${staff.name}` }
+          { text: `IDENTITY_RECORD: ID=${staff.id}, NAME=${staff.name}` }
         ];
       });
 
@@ -73,8 +74,9 @@ export class GeminiService {
 
       const optimizedProbe = await probePromise;
       parts.push({
-        text: `PROBE_IMAGE: Identify this person. Output strictly JSON.
-               JSON Structure: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
+        text: `PROBE_IMAGE INCOMING. Run recognition protocol. 
+               Output strictly JSON format.
+               Structure: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
       });
       parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedProbe } });
 
@@ -98,25 +100,22 @@ export class GeminiService {
       });
 
       const text = response.text;
-      if (!text) throw new Error("Empty response from AI");
+      if (!text) throw new Error("Null recognition buffer.");
       return JSON.parse(text) as RecognitionResult;
     } catch (error: any) {
-      console.error("Gemini Error:", error);
-      throw new Error("Biometric scan failed. Check lighting and try again.");
+      console.error("Gemini Biometrics Error:", error);
+      throw new Error("Identification logic failed. Check lighting conditions.");
     }
   }
 
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
     if (!url || !url.startsWith('https://script.google.com') || !url.includes('/exec')) {
-      return { success: false, message: "Invalid Script URL. Ensure it ends with /exec." };
-    }
-    if (url.includes('docs.google.com/forms')) {
-      return { success: false, message: "This is a Google Form URL. You must use the Apps Script 'Web App' URL." };
+      return { success: false, message: "Invalid Script Protocol." };
     }
     
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       
       const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=test&t=${Date.now()}`, { 
         method: 'GET',
@@ -124,19 +123,18 @@ export class GeminiService {
       });
       clearTimeout(timeoutId);
 
-      if (!response.ok) return { success: false, message: `Server error ${response.status}` };
+      if (!response.ok) return { success: false, message: `Status ${response.status}` };
       const text = await response.text();
       return text.trim() === "OK" 
-        ? { success: true, message: "Connected successfully!" } 
-        : { success: false, message: "Invalid script response. Check Deployment settings." };
+        ? { success: true, message: "Link Established." } 
+        : { success: false, message: "Malformed Script Response." };
     } catch (err: any) {
-      if (err.name === 'AbortError') return { success: false, message: "Connection timeout." };
-      return { success: false, message: "Connection failed. Check your internet." };
+      return { success: false, message: "Handshake Failed." };
     }
   }
 
   async syncToGoogleSheets(record: AttendanceRecord, webhookUrl: string | null) {
-    if (!webhookUrl || !webhookUrl.startsWith('http') || !webhookUrl.includes('/exec')) return { success: false };
+    if (!webhookUrl || !webhookUrl.startsWith('http')) return { success: false };
     try {
       await fetch(webhookUrl, {
         method: 'POST', mode: 'no-cors', 
@@ -150,7 +148,7 @@ export class GeminiService {
   }
 
   async syncStaffToCloud(staff: StaffMember, webhookUrl: string | null) {
-    if (!webhookUrl || !webhookUrl.startsWith('http') || !webhookUrl.includes('/exec')) return { success: false };
+    if (!webhookUrl || !webhookUrl.startsWith('http')) return { success: false };
     try {
       await fetch(webhookUrl, {
         method: 'POST', mode: 'no-cors', 
@@ -164,36 +162,17 @@ export class GeminiService {
   }
 
   async fetchCloudData(webhookUrl: string) {
-    if (!webhookUrl || !webhookUrl.startsWith('https://script.google.com') || !webhookUrl.includes('/exec')) return null;
-    
+    if (!webhookUrl || !webhookUrl.includes('/exec')) return null;
     try {
       const response = await fetch(`${webhookUrl}${webhookUrl.includes('?') ? '&' : '?'}action=get_data&t=${Date.now()}`, {
         method: 'GET'
       });
-      
-      const contentType = response.headers.get('content-type');
-      // Google Scripts always return application/json if ContentService is used correctly.
-      // If it's HTML, it's definitely an error page or a Form.
-      if (!contentType || !contentType.includes('application/json')) {
-        return null;
-      }
-
       if (response.ok) {
-        const text = await response.text();
-        if (!text || text.length < 2) return null;
-        
-        try {
-          const data = JSON.parse(text);
-          if (data && typeof data === 'object') {
-            return {
-              history: Array.isArray(data.history) ? data.history : [],
-              staff: Array.isArray(data.staff) ? data.staff : []
-            };
-          }
-        } catch (e) {
-          console.error("JSON Parse Error in Cloud Data", e);
-          return null;
-        }
+        const data = await response.json();
+        return {
+          history: Array.isArray(data.history) ? data.history : [],
+          staff: Array.isArray(data.staff) ? data.staff : []
+        };
       }
       return null;
     } catch (error) {
