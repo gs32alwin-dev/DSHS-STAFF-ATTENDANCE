@@ -32,12 +32,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
       }
 
       try {
-        // Simple constraints are often more reliable in mobile WebViews/APKs
         const constraints = {
           video: { 
             facingMode: 'user',
-            width: { ideal: 640 }, 
-            height: { ideal: 480 } 
+            width: { ideal: 1080 }, 
+            height: { ideal: 1920 } 
           },
           audio: false
         };
@@ -55,7 +54,6 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
           const video = videoRef.current;
           video.srcObject = mediaStream;
           
-          // Use both events to ensure initialization finishes
           const onReady = () => {
             if (mounted) {
               setIsCameraReady(true);
@@ -97,11 +95,9 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Low latency context settings
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     
     if (ctx && video.videoWidth > 0) {
-      // Scale down for faster processing
       canvas.width = 400;
       canvas.height = (video.videoHeight / video.videoWidth) * 400;
       
@@ -118,7 +114,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
   }, [isProcessing, onResult, staffList, isCameraReady]);
 
   return (
-    <div className="relative w-full max-w-md mx-auto overflow-hidden rounded-[40px] bg-slate-900 aspect-[4/5] shadow-2xl border-[10px] border-slate-900">
+    <div className="relative w-full h-full overflow-hidden bg-slate-900 group">
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center text-slate-400">
           <p className="font-bold text-rose-500 mb-6 text-xs uppercase tracking-widest leading-relaxed">{error}</p>
@@ -131,37 +127,41 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
             autoPlay 
             playsInline 
             muted 
-            className={`w-full h-full object-cover transition-opacity duration-500 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`} 
+            className={`w-full h-full object-cover transition-opacity duration-700 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`} 
           />
           
           {!isCameraReady && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-10">
-              <div className="w-8 h-8 border-[3px] border-white/10 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
-              <p className="text-[8px] font-black text-white/30 uppercase tracking-[4px]">Initializing Lens</p>
+              <div className="w-10 h-10 border-[3px] border-white/5 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+              <p className="text-[8px] font-black text-white/30 uppercase tracking-[4px]">Initializing Optic</p>
             </div>
           )}
 
           {showFlash && <div className="absolute inset-0 bg-white z-[60] animate-out fade-out duration-200"></div>}
 
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-             <div className="w-60 h-72 border-2 border-white/20 rounded-[40px] relative">
-                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900/60 backdrop-blur px-3 py-1 rounded-full text-[8px] font-black text-white uppercase tracking-widest border border-white/10">Align Face</div>
+          {/* MINIMAL GUIDELINE */}
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-30 group-hover:opacity-50 transition-opacity">
+             <div className="w-64 h-80 border border-white/40 rounded-[60px] relative shadow-[0_0_100px_rgba(255,255,255,0.05)]">
              </div>
           </div>
 
-          <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-3 z-20">
+          <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-4 z-20">
             <button
               onClick={captureFrame}
               disabled={isProcessing || !isCameraReady}
-              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isProcessing || !isCameraReady ? 'bg-slate-800' : 'bg-white shadow-[0_0_20px_rgba(255,255,255,0.3)] active:scale-90'}`}
+              className={`w-20 h-20 rounded-full flex items-center justify-center transition-all relative ${isProcessing || !isCameraReady ? 'bg-slate-800' : 'bg-white shadow-2xl active:scale-90'}`}
             >
               {isProcessing ? (
-                <div className="w-6 h-6 border-4 border-slate-600 border-t-indigo-500 rounded-full animate-spin"></div>
+                <div className="w-8 h-8 border-4 border-slate-600 border-t-indigo-500 rounded-full animate-spin"></div>
               ) : (
-                <div className="w-10 h-10 rounded-full border-2 border-indigo-500"></div>
+                <div className="w-14 h-14 rounded-full border-[3px] border-slate-100 bg-slate-50 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-full border-2 border-indigo-500/30"></div>
+                </div>
               )}
             </button>
-            <p className="text-[8px] font-black uppercase tracking-[3px] text-white/40">{isProcessing ? 'Analyzing' : 'Ready'}</p>
+            <div className="px-4 py-1.5 bg-black/40 backdrop-blur rounded-full border border-white/10">
+              <p className="text-[9px] font-black uppercase tracking-[3px] text-white/80">{isProcessing ? 'Analyzing Biometrics' : 'Tap to Scan'}</p>
+            </div>
           </div>
         </>
       )}
