@@ -1,5 +1,5 @@
 {
-  "name": "FaceTrack Pro - Staff Attendance",
+  "name": "DSHS FaceTrack Pro - Staff Attendance",
   "description": "A professional face-recognition based attendance system using Gemini Vision to identify staff and log attendance with timestamps.",
   "requestFramePermissions": [
     "camera"

@@ -78,83 +78,85 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
   };
 
   return (
-    <div className="glass-dark p-10 rounded-[48px] border border-white/10 shadow-2xl relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl -z-10"></div>
+    <div className="bg-white/5 border border-white/10 rounded-[40px] p-8 md:p-12 shadow-2xl relative overflow-hidden backdrop-blur-3xl">
+      <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] pointer-events-none"></div>
       
-      <form onSubmit={handleSubmit} className="space-y-8">
-        <div className="grid grid-cols-1 gap-6">
-          <div className="space-y-2">
-            <label className="text-[9px] font-black text-white/30 uppercase tracking-[4px] ml-1">Identity Name</label>
-            <input
-              type="text" required value={name} onChange={(e) => setName(e.target.value)}
-              className="w-full bg-white/5 px-6 py-4 rounded-2xl border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all font-medium text-white placeholder:text-white/10"
-              placeholder="Full Name"
-            />
+      <form onSubmit={handleSubmit} className="space-y-10">
+        {/* Profile Section */}
+        <div className="flex flex-col items-center gap-6">
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            className="w-32 h-32 rounded-[40px] bg-white/5 border-2 border-dashed border-white/10 flex items-center justify-center cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all group overflow-hidden relative shadow-2xl"
+          >
+            {photo ? (
+              <>
+                <img src={photo} alt="Preview" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                   <span className="text-white text-[9px] font-black uppercase tracking-widest">Change</span>
+                </div>
+              </>
+            ) : (
+              <div className="text-center space-y-2 group-hover:scale-110 transition-transform">
+                <svg className="w-8 h-8 text-indigo-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
+                <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Face Scan</p>
+              </div>
+            )}
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-[9px] font-black text-white/30 uppercase tracking-[4px] ml-1">Serial ID</label>
-              <input
-                type="text" required value={staffId} onChange={(e) => setStaffId(e.target.value)}
-                className="w-full bg-white/5 px-6 py-4 rounded-2xl border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all font-mono text-xs text-white placeholder:text-white/10"
-                placeholder="ID-001"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[9px] font-black text-white/30 uppercase tracking-[4px] ml-1">Rank/Role</label>
-              <input
-                type="text" required value={role} onChange={(e) => setRole(e.target.value)}
-                className="w-full bg-white/5 px-6 py-4 rounded-2xl border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all text-sm text-white placeholder:text-white/10"
-                placeholder="Manager"
-              />
-            </div>
+          <div className="text-center">
+             <h3 className="text-sm font-black text-white uppercase tracking-[4px]">Biometric Registration</h3>
+             <p className="text-[10px] text-white/30 font-medium">Clear frontal portrait required</p>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-[9px] font-black text-white/30 uppercase tracking-[4px] ml-1">Biometric Profile</label>
-          <div 
-            onClick={() => fileInputRef.current?.click()}
-            className="bg-white/5 border border-dashed border-white/10 rounded-3xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-white/10 transition-all min-h-[220px] group"
-          >
-            {photo ? (
-              <div className="relative group/img">
-                <img src={photo} alt="Preview" className="w-32 h-32 object-cover rounded-[40px] border-2 border-white/10 shadow-2xl" />
-                <div className="absolute inset-0 bg-black/60 rounded-[40px] opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity">
-                   <span className="text-white text-[9px] font-black uppercase tracking-widest">Update</span>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform border border-white/5">
-                  <svg className="w-7 h-7 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
-                </div>
-                <span className="text-[10px] text-white/40 font-black uppercase tracking-[3px]">Register Face</span>
-              </>
-            )}
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
+        {/* Info Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-[4px] ml-1">Full Identity Name</label>
+            <input
+              type="text" required value={name} onChange={(e) => setName(e.target.value)}
+              className="w-full bg-white/5 px-6 py-5 rounded-[24px] border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all font-semibold text-white placeholder:text-white/10"
+              placeholder="e.g. Johnathan Miller"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-[4px] ml-1">Access Serial (ID)</label>
+            <input
+              type="text" required value={staffId} onChange={(e) => setStaffId(e.target.value)}
+              className="w-full bg-white/5 px-6 py-5 rounded-[24px] border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all font-mono text-sm text-white placeholder:text-white/10"
+              placeholder="FP-9021"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-[4px] ml-1">Assigned Rank</label>
+            <input
+              type="text" required value={role} onChange={(e) => setRole(e.target.value)}
+              className="w-full bg-white/5 px-6 py-5 rounded-[24px] border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all text-sm text-white placeholder:text-white/10 font-semibold"
+              placeholder="Department Lead"
+            />
           </div>
         </div>
 
         <button
           type="submit"
           disabled={!name || !role || !photo || !staffId}
-          className="w-full bg-white text-black py-5 rounded-3xl font-black text-xs uppercase tracking-[5px] hover:bg-indigo-50 active:scale-95 transition-all disabled:opacity-20 shadow-2xl shadow-white/5"
+          className="w-full py-6 bg-white text-black rounded-[28px] font-black text-xs uppercase tracking-[5px] hover:bg-indigo-50 active:scale-95 transition-all disabled:opacity-20 shadow-2xl disabled:pointer-events-none"
         >
-          Finalize Credentials
+          Finalize Enrollment
         </button>
       </form>
 
+      {/* CROPPER MODAL */}
       {imageToCrop && (
-        <div className="fixed inset-0 z-[1200] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-6">
-          <div className="glass-dark w-full max-w-sm rounded-[48px] overflow-hidden shadow-2xl p-6">
-            <h4 className="text-center text-[10px] font-black uppercase tracking-[5px] mb-6">Profile Alignment</h4>
-            <div className="relative h-[300px] rounded-[40px] overflow-hidden bg-black/50 border border-white/10">
+        <div className="fixed inset-0 z-[1200] bg-[#020617]/95 backdrop-blur-3xl flex items-center justify-center p-6">
+          <div className="w-full max-w-md bg-white/5 border border-white/10 rounded-[48px] overflow-hidden shadow-2xl p-8">
+            <h4 className="text-center text-[10px] font-black uppercase tracking-[5px] mb-8 text-indigo-400">Align Profile Optics</h4>
+            <div className="relative h-[340px] rounded-[40px] overflow-hidden bg-black/40 border border-white/5">
               <Cropper image={imageToCrop} crop={crop} zoom={zoom} rotation={rotation} aspect={1} cropShape="round" onCropChange={setCrop} onCropComplete={onCropComplete} onZoomChange={setZoom} />
             </div>
-            <div className="mt-8 flex gap-3">
-              <button onClick={() => setImageToCrop(null)} className="flex-1 py-4 px-4 rounded-2xl bg-white/5 text-white/40 font-black text-[10px] uppercase tracking-widest border border-white/5">Cancel</button>
-              <button onClick={handleSaveCrop} className="flex-1 py-4 px-4 rounded-2xl bg-white text-black font-black text-[10px] uppercase tracking-widest shadow-xl">Apply</button>
+            <div className="mt-10 flex gap-4">
+              <button onClick={() => setImageToCrop(null)} className="flex-1 py-5 rounded-2xl bg-white/5 text-white/40 font-black text-[10px] uppercase tracking-widest border border-white/5">Cancel</button>
+              <button onClick={handleSaveCrop} className="flex-1 py-5 rounded-2xl bg-white text-black font-black text-[10px] uppercase tracking-widest shadow-xl active:scale-95">Save Profile</button>
             </div>
           </div>
         </div>
