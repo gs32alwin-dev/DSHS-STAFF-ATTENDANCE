@@ -150,15 +150,16 @@ const App: React.FC = () => {
         if (webhookUrl && isScriptUrl(webhookUrl)) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl).catch(() => {});
         }
-        setTimeout(() => setLastRecognition(null), 2000);
+        // Reduced from 2000ms to 1200ms for even faster feedback
+        setTimeout(() => setLastRecognition(null), 1200);
       } else {
         const msg = result.message?.toLowerCase().includes("confidence") 
-          ? "Low Confidence. Check lighting." 
-          : "Unauthorized Identity.";
+          ? "Low Confidence." 
+          : "Identity Unknown.";
         setToast({ message: msg, type: 'error' });
       }
     } catch (err: any) {
-      setToast({ message: "System Busy. Please try again.", type: 'error' });
+      setToast({ message: "System Busy.", type: 'error' });
     } finally {
       setIsProcessing(false);
     }
@@ -167,8 +168,9 @@ const App: React.FC = () => {
   return (
     <div className="h-screen-dynamic bg-[#020617] relative flex flex-col overflow-hidden text-slate-100 font-jakarta antialiased">
       
+      {/* SUCCESS OVERLAY (Snappier animations) */}
       {lastRecognition && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 backdrop-blur-3xl animate-in fade-in zoom-in duration-300 px-6">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 backdrop-blur-3xl animate-in fade-in zoom-in duration-200 px-6">
            <div className={`w-full max-w-md p-1 bg-gradient-to-br rounded-[48px] ${lastRecognition.type === 'SIGN_IN' ? 'from-emerald-500/50 to-emerald-900/50' : 'from-indigo-500/50 to-indigo-900/50'}`}>
              <div className="bg-[#020617] rounded-[47px] p-10 text-center relative overflow-hidden">
                 <div className={`absolute top-0 inset-x-0 h-1 ${lastRecognition.type === 'SIGN_IN' ? 'bg-emerald-500' : 'bg-indigo-500'} opacity-20`}></div>
@@ -181,14 +183,14 @@ const App: React.FC = () => {
                    )}
                 </div>
 
-                <p className="text-[10px] font-black uppercase tracking-[6px] text-slate-500 mb-2">{lastRecognition.type === 'SIGN_IN' ? 'System Login' : 'System Logout'}</p>
+                <p className="text-[10px] font-black uppercase tracking-[6px] text-slate-500 mb-2">{lastRecognition.type === 'SIGN_IN' ? 'Login Success' : 'Logout Success'}</p>
                 <h1 className="text-3xl font-black text-white tracking-tighter mb-4">{lastRecognition.name}</h1>
                 
                 <div className="py-6 px-4 bg-white/5 rounded-3xl mb-8">
                    <p className="text-lg font-semibold text-slate-300 leading-tight">
                      {lastRecognition.type === 'SIGN_IN' 
-                       ? "Glad you’re here, your presence makes a difference."
-                       : "Thank you for giving your best today, safe journey."}
+                       ? "Welcome back!"
+                       : "Safe journey!"}
                    </p>
                 </div>
 
@@ -199,7 +201,7 @@ const App: React.FC = () => {
       )}
 
       {toast && (
-        <div className={`fixed top-12 left-1/2 -translate-x-1/2 z-[1100] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border animate-in slide-in-from-top-4 duration-300 backdrop-blur-3xl
+        <div className={`fixed top-12 left-1/2 -translate-x-1/2 z-[1100] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border animate-in slide-in-from-top-4 duration-200 backdrop-blur-3xl
           ${toast.type === 'success' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300' : 
             toast.type === 'error' ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' : 'bg-slate-800 border-white/10 text-slate-300'}`}>
           <div className={`w-1.5 h-1.5 rounded-full bg-current ${toast.type === 'error' ? 'animate-pulse' : ''}`}></div>

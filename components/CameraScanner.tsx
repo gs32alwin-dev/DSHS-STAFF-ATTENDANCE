@@ -77,12 +77,9 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // We want to capture what the user sees. 
-    // Since the video is object-cover, we need to crop the center part for the API
     const ctx = canvas.getContext('2d', { alpha: false });
     
     if (ctx && video.videoWidth > 0) {
-      // Create a square capture from the center of the video for best biometric results
       const size = Math.min(video.videoWidth, video.videoHeight);
       const startX = (video.videoWidth - size) / 2;
       const startY = (video.videoHeight - size) / 2;
@@ -90,11 +87,18 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
       canvas.width = 640;
       canvas.height = 640;
       
+      // We flip the context horizontally to match the mirrored video feed for the AI logic 
+      // although Gemini doesn't strictly need it, it keeps everything consistent.
+      ctx.save();
+      ctx.translate(640, 0);
+      ctx.scale(-1, 1);
+      
       ctx.drawImage(
         video, 
-        startX, startY, size, size, // source
-        0, 0, 640, 640              // destination
+        startX, startY, size, size, 
+        0, 0, 640, 640
       );
+      ctx.restore();
       
       const base64Data = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
       
@@ -125,14 +129,15 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
         </div>
       ) : (
         <>
-          {/* FULL SCREEN PORTRAIT VIDEO FEED */}
+          {/* FULL SCREEN MIRRORED VIDEO FEED */}
           <div className="absolute inset-0 w-full h-full">
             <video 
               ref={videoRef} 
               autoPlay 
               playsInline 
               muted 
-              className={`w-full h-full object-cover grayscale-[0.2] brightness-[0.9] transition-opacity duration-1000 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`} 
+              className={`w-full h-full object-cover grayscale-[0.2] brightness-[0.9] transition-opacity duration-700 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`}
+              style={{ transform: 'scaleX(-1)' }} 
             />
             
             {/* VIGNETTE OVERLAY */}
@@ -150,17 +155,17 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
 
           {/* BIOMETRIC VIEWPORT HUD */}
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-20">
-             <div className={`w-[75vw] h-[75vw] sm:w-[420px] sm:h-[420px] border-2 rounded-[64px] relative transition-all duration-700 ${isProcessing ? 'border-indigo-500/50 scale-105 shadow-[0_0_100px_rgba(99,102,241,0.2)]' : 'border-white/5'}`}>
+             <div className={`w-[75vw] h-[75vw] sm:w-[420px] sm:h-[420px] border-2 rounded-[64px] relative transition-all duration-300 ${isProcessing ? 'border-indigo-500/80 scale-105 shadow-[0_0_120px_rgba(99,102,241,0.3)]' : 'border-white/10'}`}>
                 
                 {/* Minimal Corner Brackets */}
-                <div className="absolute -top-1 -left-1 w-12 h-12 border-t-4 border-l-4 border-indigo-500 rounded-tl-[40px]"></div>
-                <div className="absolute -top-1 -right-1 w-12 h-12 border-t-4 border-r-4 border-indigo-500 rounded-tr-[40px]"></div>
-                <div className="absolute -bottom-1 -left-1 w-12 h-12 border-b-4 border-l-4 border-indigo-500 rounded-bl-[40px]"></div>
-                <div className="absolute -bottom-1 -right-1 w-12 h-12 border-b-4 border-r-4 border-indigo-500 rounded-br-[40px]"></div>
+                <div className={`absolute -top-1 -left-1 w-12 h-12 border-t-4 border-l-4 rounded-tl-[40px] transition-colors duration-300 ${isProcessing ? 'border-white' : 'border-indigo-500'}`}></div>
+                <div className={`absolute -top-1 -right-1 w-12 h-12 border-t-4 border-r-4 rounded-tr-[40px] transition-colors duration-300 ${isProcessing ? 'border-white' : 'border-indigo-500'}`}></div>
+                <div className={`absolute -bottom-1 -left-1 w-12 h-12 border-b-4 border-l-4 rounded-bl-[40px] transition-colors duration-300 ${isProcessing ? 'border-white' : 'border-indigo-500'}`}></div>
+                <div className={`absolute -bottom-1 -right-1 w-12 h-12 border-b-4 border-r-4 rounded-br-[40px] transition-colors duration-300 ${isProcessing ? 'border-white' : 'border-indigo-500'}`}></div>
                 
-                {/* SCANNING LINE */}
+                {/* SCANNING LINE (Sped up from 2s to 1s) */}
                 {isProcessing && (
-                  <div className="absolute inset-x-10 top-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-400 to-transparent shadow-[0_0_40px_rgba(99,102,241,0.8)] animate-[scan_2s_ease-in-out_infinite]"></div>
+                  <div className="absolute inset-x-10 top-0 h-[3px] bg-gradient-to-r from-transparent via-white to-transparent shadow-[0_0_50px_rgba(255,255,255,0.9)] animate-[scan_1s_ease-in-out_infinite]"></div>
                 )}
              </div>
           </div>
@@ -180,11 +185,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
               disabled={isProcessing || !isCameraReady}
               className={`w-28 h-28 rounded-full flex items-center justify-center transition-all p-2 relative group ${isProcessing || !isCameraReady ? 'opacity-40 pointer-events-none' : 'active:scale-95'}`}
             >
-               <div className={`absolute inset-0 rounded-full border-2 transition-all duration-500 ${isProcessing ? 'border-indigo-500 animate-spin border-t-transparent' : 'border-white/20 group-hover:border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.1)]'}`}></div>
+               <div className={`absolute inset-0 rounded-full border-2 transition-all duration-300 ${isProcessing ? 'border-indigo-500 animate-spin border-t-transparent' : 'border-white/20 group-hover:border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.1)]'}`}></div>
                
-               <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isProcessing ? 'bg-slate-900' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.3)]'}`}>
+               <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isProcessing ? 'bg-indigo-600' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.3)]'}`}>
                  {isProcessing ? (
-                   <div className="w-7 h-7 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+                   <div className="w-7 h-7 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
                  ) : (
                    <div className="w-8 h-8 border border-black/5 rounded-full flex items-center justify-center">
                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-600/30 animate-pulse"></div>
@@ -194,8 +199,8 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
             </button>
             
             {isProcessing && (
-              <div className="mt-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <p className="text-[8px] font-black uppercase tracking-[4px] text-indigo-400">Syncing Biometrics...</p>
+              <div className="mt-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <p className="text-[9px] font-black uppercase tracking-[5px] text-white animate-pulse">High Speed Processing...</p>
               </div>
             )}
           </div>
@@ -204,10 +209,10 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onResult, isProces
       <canvas ref={canvasRef} className="hidden" />
       <style>{`
         @keyframes scan {
-          0%, 100% { top: 10%; opacity: 0; }
+          0%, 100% { top: 5%; opacity: 0; }
           15% { opacity: 1; }
           85% { opacity: 1; }
-          100% { top: 90%; opacity: 0; }
+          100% { top: 95%; opacity: 0; }
         }
       `}</style>
     </div>
