@@ -54,7 +54,7 @@ const App: React.FC = () => {
           setStaffList(prev => {
             const existingIds = new Set(prev.map(s => s.id));
             const newStaff = cloudData.staff.filter((s: any) => s && s.id && !existingIds.has(s.id));
-            return [...prev, ...newStaff];
+            return [...prev, ...newStaff].slice(0, 100); // Terminal limit enforced here too
           });
         }
       }
@@ -86,6 +86,10 @@ const App: React.FC = () => {
   }, [webhookUrl]);
 
   const handleRegister = async (newStaff: StaffMember) => {
+    if (staffList.length >= 100) {
+      setToast({ message: "Identity capacity (100) reached.", type: 'error' });
+      return;
+    }
     if (staffList.some(s => s.id === newStaff.id)) {
       setToast({ message: `ID conflict detected.`, type: 'error' });
       return;
@@ -122,10 +126,13 @@ const App: React.FC = () => {
       if (result.identified && result.staffId && result.staffName) {
         const now = new Date();
         const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        const staff = staffList.find(s => s.id === result.staffId);
+        
         const newRecord: AttendanceRecord = {
           id: Math.random().toString(36).substring(2, 9),
           staffId: result.staffId,
           staffName: result.staffName,
+          staffRole: staff?.role || 'Unknown',
           timestamp: timeStr,
           date: now.toLocaleDateString(),
           status: 'PRESENT',
@@ -143,10 +150,12 @@ const App: React.FC = () => {
         if (webhookUrl && isScriptUrl(webhookUrl)) {
            geminiService.syncToGoogleSheets(newRecord, webhookUrl).catch(() => {});
         }
-        // Reduced from 5000ms to 2000ms for faster feedback
         setTimeout(() => setLastRecognition(null), 2000);
       } else {
-        setToast({ message: "Unauthorized Identity.", type: 'error' });
+        const msg = result.message?.toLowerCase().includes("confidence") 
+          ? "Low Confidence. Check lighting." 
+          : "Unauthorized Identity.";
+        setToast({ message: msg, type: 'error' });
       }
     } catch (err: any) {
       setToast({ message: "System Busy. Please try again.", type: 'error' });
@@ -158,7 +167,6 @@ const App: React.FC = () => {
   return (
     <div className="h-screen-dynamic bg-[#020617] relative flex flex-col overflow-hidden text-slate-100 font-jakarta antialiased">
       
-      {/* SUCCESS OVERLAY */}
       {lastRecognition && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 backdrop-blur-3xl animate-in fade-in zoom-in duration-300 px-6">
            <div className={`w-full max-w-md p-1 bg-gradient-to-br rounded-[48px] ${lastRecognition.type === 'SIGN_IN' ? 'from-emerald-500/50 to-emerald-900/50' : 'from-indigo-500/50 to-indigo-900/50'}`}>
@@ -190,7 +198,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* NOTIFICATION */}
       {toast && (
         <div className={`fixed top-12 left-1/2 -translate-x-1/2 z-[1100] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border animate-in slide-in-from-top-4 duration-300 backdrop-blur-3xl
           ${toast.type === 'success' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300' : 
@@ -200,7 +207,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* HEADER BAR - LOGO ONLY TO KEEP TOP CLEAR */}
       <header className="fixed top-0 inset-x-0 z-[100] h-20 px-8 flex items-center pointer-events-none">
         <div className="flex items-center gap-4 pointer-events-auto">
           <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-2xl shadow-indigo-500/20">
@@ -213,13 +219,10 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* MAIN VIEWPORT */}
       <main className="flex-grow relative overflow-hidden flex flex-col">
         {activeTab === 'attendance' ? (
           <div className="absolute inset-0 z-0">
             <CameraScanner onResult={handleRecognition} isProcessing={isProcessing} staffList={staffList} />
-            
-            {/* MODE SWITCHER - AT TOP AS REQUESTED */}
             <div className="absolute top-24 left-1/2 -translate-x-1/2 flex items-center p-1 bg-black/50 border border-white/10 rounded-[30px] backdrop-blur-3xl z-40 shadow-2xl">
               <button 
                 onClick={() => setClockMode('SIGN_IN')} 
@@ -237,7 +240,6 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            {/* SYNC BUTTON - REPOSITIONED BELOW THE CAMERA RANGE AS REQUESTED */}
             <div className="absolute bottom-32 right-8 z-[50]">
               <button 
                 onClick={fetchFromCloud}
@@ -255,14 +257,13 @@ const App: React.FC = () => {
         ) : (
           <div className="flex-grow overflow-y-auto pt-24 pb-32 no-scrollbar mesh-gradient">
             <div className="max-w-xl mx-auto px-6 space-y-12">
-               {/* Page Header */}
                <div className="space-y-2">
                  <p className="text-[10px] font-black uppercase tracking-[5px] text-indigo-400 ml-1">Administration</p>
                  <h2 className="text-4xl font-black text-white tracking-tight capitalize">{activeTab} Manager</h2>
                </div>
 
                <div className="animate-in fade-in slide-in-from-bottom-8 duration-500">
-                  {activeTab === 'registration' && <StaffRegistration onRegister={handleRegister} />}
+                  {activeTab === 'registration' && <StaffRegistration onRegister={handleRegister} staffCount={staffList.length} />}
                   {activeTab === 'staff' && <StaffList staffList={staffList} onDelete={handleDeleteStaff} />}
                   {activeTab === 'settings' && <SheetConfig webhookUrl={webhookUrl} onUrlChange={setWebhookUrl} />}
                </div>
@@ -271,7 +272,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* NAVIGATION - AT THE BOTTOM */}
       <nav className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[800] p-1.5 bg-black/50 border border-white/10 rounded-[40px] backdrop-blur-3xl shadow-[0_40px_80px_rgba(0,0,0,0.5)] flex items-center gap-1">
         {[
           { id: 'attendance', label: 'Monitor', icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z' },

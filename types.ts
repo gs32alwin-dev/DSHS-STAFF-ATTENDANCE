@@ -12,6 +12,7 @@ export interface AttendanceRecord {
   id: string;
   staffId: string;
   staffName: string;
+  staffRole: string;
   timestamp: string;
   date: string;
   status: 'PRESENT' | 'LATE' | 'ABSENT';

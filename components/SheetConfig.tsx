@@ -43,7 +43,7 @@ function doGet(e) {
   var staffSheet = ss.getSheetByName("Staff") || ss.insertSheet("Staff");
   
   if (historySheet.getLastRow() === 0) {
-    historySheet.appendRow(["Name", "ID", "Date", "Time", "Type", "Method", "Status", "UID"]);
+    historySheet.appendRow(["Name", "ID", "Role", "Date", "Time", "Type", "Method", "Status", "UID"]);
   }
   if (staffSheet.getLastRow() === 0) {
     staffSheet.appendRow(["Name", "Role", "ID", "Avatar"]);
@@ -54,7 +54,7 @@ function doGet(e) {
     var staff = staffSheet.getDataRange().getValues();
     
     var historyData = history.length > 1 ? history.slice(1).map(row => ({
-      staffName: String(row[0]), staffId: String(row[1]), date: String(row[2]), timestamp: String(row[3]), type: String(row[4]), method: String(row[5]), status: String(row[6]), id: String(row[7])
+      staffName: String(row[0]), staffId: String(row[1]), staffRole: String(row[2]), date: String(row[3]), timestamp: String(row[4]), type: String(row[5]), method: String(row[6]), status: String(row[7]), id: String(row[8])
     })) : [];
     
     var staffData = staff.length > 1 ? staff.slice(1).map(row => ({
@@ -74,7 +74,8 @@ function doPost(e) {
     if (payload.action === 'add_record') {
       var sheet = ss.getSheetByName("Attendance") || ss.insertSheet("Attendance");
       var d = payload.data;
-      sheet.appendRow([d.staffName, d.staffId, d.date, d.timestamp, d.type, d.method, d.status, d.id]);
+      // Updated appendRow to include staffRole
+      sheet.appendRow([d.staffName, d.staffId, d.staffRole, d.date, d.timestamp, d.type, d.method, d.status, d.id]);
     }
     
     if (payload.action === 'add_staff') {

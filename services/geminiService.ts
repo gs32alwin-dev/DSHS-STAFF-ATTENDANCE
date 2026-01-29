@@ -8,7 +8,7 @@ export class GeminiService {
   /**
    * Resizes a base64 image to reduce payload size for faster API transmission.
    */
-  private async resizeImage(base64Str: string, maxWidth: number = 512): Promise<string> {
+  private async resizeImage(base64Str: string, maxWidth: number = 768): Promise<string> {
     return new Promise((resolve) => {
       try {
         const img = new Image();
@@ -24,7 +24,8 @@ export class GeminiService {
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
+            // Lower quality slightly for 100-staff capacity to stay within payload limits
+            resolve(canvas.toDataURL('image/jpeg', 0.75).split(',')[1]);
           } else {
             resolve(base64Str.includes(',') ? base64Str.split(',')[1] : base64Str);
           }
@@ -42,30 +43,41 @@ export class GeminiService {
     }
 
     try {
-      const probePromise = this.resizeImage(probeImageBase64, 512);
+      const probePromise = this.resizeImage(probeImageBase64, 768);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const parts: any[] = [];
 
-      // Limit reference database to top 15 most likely matches to keep prompt small and fast
+      // Increased capacity to 100 as requested
       const validStaff = staffList
         .filter(s => s.avatarUrl && (s.avatarUrl.includes('base64,') || s.avatarUrl.startsWith('http')))
-        .slice(0, 15); 
+        .slice(0, 100); 
 
       if (validStaff.length === 0) {
         return { identified: false, confidence: 0, message: "Authorized database empty." };
       }
 
-      parts.push({ text: "Biometric Protocol: Cross-reference PROBE_IMAGE against the provided REFERENCE_DATABASE. Identify the individual if confidence > 0.85. Be extremely precise." });
+      parts.push({ 
+        text: `CRITICAL SECURITY PROTOCOL: Facial Identification System (Capacity: 100 Identities).
+Compare the incoming PROBE_IMAGE against the LARGE REFERENCE_DATABASE below.
+
+INSTRUCTIONS:
+1. Examine facial geometry, distinctive features, and bone structure.
+2. The database contains up to 100 profiles. Identify the best match.
+3. Return identified:true only if confidence > 0.8.
+
+REFERENCE DATABASE:`
+      });
 
       const staffPartsPromises = validStaff.map(async (staff) => {
         let optimizedRef = this.avatarCache.get(staff.id);
         if (!optimizedRef) {
-          optimizedRef = await this.resizeImage(staff.avatarUrl, 320);
+          // Keep reference images small (300px) to allow 100 profiles in one prompt payload
+          optimizedRef = await this.resizeImage(staff.avatarUrl, 300);
           this.avatarCache.set(staff.id, optimizedRef);
         }
         return [
           { inlineData: { mimeType: 'image/jpeg', data: optimizedRef } },
-          { text: `IDENTITY_RECORD: ID=${staff.id}, NAME=${staff.name}` }
+          { text: `ID:${staff.id} NAME:${staff.name} ROLE:${staff.role}` }
         ];
       });
 
@@ -74,9 +86,7 @@ export class GeminiService {
 
       const optimizedProbe = await probePromise;
       parts.push({
-        text: `PROBE_IMAGE INCOMING. Run recognition protocol. 
-               Output strictly JSON format.
-               Structure: { "identified": boolean, "staffId": string, "staffName": string, "confidence": number, "message": string }`
+        text: `PROBE_IMAGE ATTACHED. Identify this user and provide the result in JSON format.`
       });
       parts.push({ inlineData: { mimeType: 'image/jpeg', data: optimizedProbe } });
 
@@ -84,6 +94,7 @@ export class GeminiService {
         model: 'gemini-3-flash-preview',
         contents: { parts },
         config: {
+          thinkingConfig: { thinkingBudget: 4000 },
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -104,7 +115,7 @@ export class GeminiService {
       return JSON.parse(text) as RecognitionResult;
     } catch (error: any) {
       console.error("Gemini Biometrics Error:", error);
-      throw new Error("Identification logic failed. Check lighting conditions.");
+      throw new Error("System processing error.");
     }
   }
 

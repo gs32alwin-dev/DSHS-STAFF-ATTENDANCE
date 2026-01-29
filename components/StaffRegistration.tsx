@@ -5,14 +5,23 @@ import { StaffMember } from '../types';
 
 interface StaffRegistrationProps {
   onRegister: (staff: StaffMember) => void;
+  staffCount: number;
 }
 
 interface Point { x: number; y: number }
 interface Area { x: number; y: number; width: number; height: number }
 
-export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister }) => {
+const ROLE_OPTIONS = [
+  "Educator",
+  "Admin",
+  "Support staff"
+];
+
+const MAX_STAFF = 100;
+
+export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister, staffCount }) => {
   const [name, setName] = useState('');
-  const [role, setRole] = useState('');
+  const [role, setRole] = useState(ROLE_OPTIONS[0]);
   const [staffId, setStaffId] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
@@ -47,16 +56,20 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      canvas.width = pixelCrop.width;
-      canvas.height = pixelCrop.height;
+      const size = 512;
+      canvas.width = size;
+      canvas.height = size;
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       ctx.drawImage(
         image,
         pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height,
-        0, 0, pixelCrop.width, pixelCrop.height
+        0, 0, size, size
       );
 
-      return canvas.toDataURL('image/jpeg', 0.8);
+      return canvas.toDataURL('image/jpeg', 0.9);
     } catch (e) { return null; }
   };
 
@@ -72,17 +85,29 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (staffCount >= MAX_STAFF) {
+      alert("Local capacity reached. Enrolled 100 identities.");
+      return;
+    }
     if (!name || !role || !photo || !staffId) return;
     onRegister({ id: staffId.trim(), name: name.trim(), role: role.trim(), avatarUrl: photo, isCustom: true });
-    setName(''); setRole(''); setStaffId(''); setPhoto(null);
+    setName(''); setRole(ROLE_OPTIONS[0]); setStaffId(''); setPhoto(null);
   };
+
+  const isLimitReached = staffCount >= MAX_STAFF;
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-[40px] p-8 md:p-12 shadow-2xl relative overflow-hidden backdrop-blur-3xl">
       <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] pointer-events-none"></div>
       
-      <form onSubmit={handleSubmit} className="space-y-10">
-        {/* Profile Section */}
+      {isLimitReached && (
+        <div className="mb-8 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3">
+          <svg className="w-5 h-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <p className="text-[10px] font-black uppercase tracking-widest text-rose-400">Local Identity Capacity Reached (100/100)</p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className={`space-y-10 ${isLimitReached ? 'opacity-20 pointer-events-none' : ''}`}>
         <div className="flex flex-col items-center gap-6">
           <div 
             onClick={() => fileInputRef.current?.click()}
@@ -109,7 +134,6 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
           </div>
         </div>
 
-        {/* Info Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2 md:col-span-2">
             <label className="text-[10px] font-black text-white/30 uppercase tracking-[4px] ml-1">Full Identity Name</label>
@@ -128,25 +152,27 @@ export const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegister
             />
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-white/30 uppercase tracking-[4px] ml-1">Assigned Rank</label>
-            <input
-              type="text" required value={role} onChange={(e) => setRole(e.target.value)}
-              className="w-full bg-white/5 px-6 py-5 rounded-[24px] border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all text-sm text-white placeholder:text-white/10 font-semibold"
-              placeholder="Department Lead"
-            />
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-[4px] ml-1">Assigned Rank (Role)</label>
+            <select
+              required value={role} onChange={(e) => setRole(e.target.value)}
+              className="w-full bg-white/5 px-6 py-5 rounded-[24px] border border-white/5 focus:border-indigo-500/50 focus:bg-white/10 outline-none transition-all text-sm text-white font-semibold appearance-none cursor-pointer"
+            >
+              {ROLE_OPTIONS.map(opt => (
+                <option key={opt} value={opt} className="bg-slate-900 text-white">{opt}</option>
+              ))}
+            </select>
           </div>
         </div>
 
         <button
           type="submit"
-          disabled={!name || !role || !photo || !staffId}
+          disabled={!name || !role || !photo || !staffId || isLimitReached}
           className="w-full py-6 bg-white text-black rounded-[28px] font-black text-xs uppercase tracking-[5px] hover:bg-indigo-50 active:scale-95 transition-all disabled:opacity-20 shadow-2xl disabled:pointer-events-none"
         >
           Finalize Enrollment
         </button>
       </form>
 
-      {/* CROPPER MODAL */}
       {imageToCrop && (
         <div className="fixed inset-0 z-[1200] bg-[#020617]/95 backdrop-blur-3xl flex items-center justify-center p-6">
           <div className="w-full max-w-md bg-white/5 border border-white/10 rounded-[48px] overflow-hidden shadow-2xl p-8">

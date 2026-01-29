@@ -10,14 +10,19 @@ interface StaffListProps {
 export const StaffList: React.FC<StaffListProps> = ({ staffList, onDelete }) => {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between px-2">
-        <div className="flex items-center gap-3">
-           <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-           <h3 className="text-sm font-black text-white/90 uppercase tracking-[4px]">Authorized Personnel</h3>
+      <div className="flex flex-col gap-4 px-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+             <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+             <h3 className="text-sm font-black text-white/90 uppercase tracking-[4px]">Authorized Personnel</h3>
+          </div>
+          <div className="px-4 py-1.5 bg-white/5 rounded-full border border-white/10">
+             <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{staffList.length} / 100 Enrolled</span>
+          </div>
         </div>
-        <div className="px-4 py-1.5 bg-white/5 rounded-full border border-white/10">
-           <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{staffList.length} Active Records</span>
-        </div>
+        <p className="text-[9px] font-bold text-indigo-400/60 uppercase tracking-widest px-1">
+          Local Storage: 100 Identities Max • Google Sheets: Unlimited Capacity
+        </p>
       </div>
 
       {staffList.length === 0 ? (
